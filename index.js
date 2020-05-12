@@ -1,12 +1,15 @@
 const Telegraf = require('telegraf')
 const Telegram = require('telegraf/telegram')
+const Extra = require('telegraf/extra')
+const Markup = require('telegraf/markup')
+const express = require('express')
 require('dotenv').config()
 
 // EventEmitter type is built-in to nodejs, no package to install
 const EventEmitter = require('events')
 
 // this will transmit events from the telegram bot listeners
-// over an internal channel, where the events are named by the 
+// over an internal channel, where the events are named by the
 // user id who sent the message
 const eventBus = new EventEmitter()
 
@@ -19,16 +22,60 @@ const telegram = new Telegram(token)
 
 // key will be group id, value will be "game" being played
 // only one game per time in a group
-const games = {}
+const ARCHIVED_GAMES = {}
+const GAMES = {}
+
+/*
+/start GAME CLASS DEFINITION
+*/
+const TESTING_MODE = false
 
 class Game {
   constructor(groupId) {
     this.groupId = groupId
-    this.players = []
-    // player data, keyed by player id
-    this.playerData = {}
+    if (TESTING_MODE) {
+      this.players = ['1', '2', '3', '4']
+      this.playerData = {
+        '1': {
+          id: '1',
+          first_name: 'Agent',
+          last_name: '1',
+          username: 'agent1',
+          test: true
+        },
+        '2': {
+          id: '2',
+          first_name: 'Agent',
+          last_name: '2',
+          username: 'agent2',
+          test: true
+        },
+        '3': {
+          id: '3',
+          first_name: 'Agent',
+          last_name: '3',
+          username: 'agent3',
+          test: true
+        },
+        '4': {
+          id: '4',
+          first_name: 'Agent',
+          last_name: '4',
+          username: 'agent4',
+          test: true
+        }
+      }
+    } else {
+      this.players = []
+      // player data, keyed by player id
+      this.playerData = {}
+    }
     this.running = false
   }
+
+  /*
+    built-in methods for Game instances
+  */
 
   // during setup stage of the game
   addPlayer(userId, userData) {
@@ -36,8 +83,23 @@ class Game {
     this.playerData[userId] = userData
   }
 
+  archiveGame() {
+    // make sure the array for archiving this groups games exists
+    if (!ARCHIVED_GAMES[this.groupId]) {
+      ARCHIVED_GAMES[this.groupId] = []
+    }
+    // add it to this groups archived game list
+    ARCHIVED_GAMES[this.groupId].push(this)
+    // remove it from the active games reference
+    delete GAMES[this.groupId]
+  }
+
   // core 1-on-1 interaction to ask about how well someone knows someone else
-  async playerAndPlayerConnection(playerToAsk, playerToAskAbout) {
+  async playerAndPlayerConnection(
+    playerToAsk,
+    playerToAskAbout,
+    numberRemaining
+  ) {
     /*
           id
           first_name
@@ -45,47 +107,57 @@ class Game {
           username
         */
 
-    console.log(
-      `detecting relationship between ${playerToAsk.id} and ${playerToAskAbout.id}`
-    )
-
     const levels = `
-        0 - I've never seen / heard of them before online or otherwise 
-        1 - I've seen their name or avatar before, but we've never interacted in any way
-        2 - We've interacted a little online, but we've never been in each other's presence in any way before
-        3 - We've been in each other's presence, but have yet to talk
-        4 - We've met and/or introduced ourselves to each other.
-        5 - We've had some opportunites to get to know each other better, but not many
-        6 - We've had a 1on1 conversation together
-        7 - We've met/interacted many times and gotten to know each other
-        8 - We're good friends/colleagues
-        9 - We're partners/spouses
+0 - I've never seen / heard of them before online or otherwise 
+1 - I've seen their name or avatar before, but we've never interacted in any way
+2 - We've interacted a little online, but we've never been in each other's presence in any way before
+3 - We've been in each other's presence, but have yet to talk
+4 - We've met and/or introduced ourselves to each other.
+5 - We've had some opportunites to get to know each other better, but not many
+6 - We've had a 1on1 conversation together
+7 - We've met/interacted many times and gotten to know each other
+8 - We're good friends/colleagues
+9 - We're partners/spouses
         `
 
     const otherPlayersName = playerToAskAbout.first_name
-    telegram.sendMessage(
+    await telegram.sendMessage(
       playerToAsk.id,
       `how well do you know ${otherPlayersName} (@${playerToAskAbout.username})`
     )
-    telegram.sendMessage(
+    await telegram.sendMessage(
       playerToAsk.id,
       `use the following guide to assign a number to your connection`
     )
-    telegram.sendMessage(
+    await telegram.sendMessage(
       playerToAsk.id,
       `type in the highest number that you would say is true about your connection, and send as a reply to this message`
     )
-    telegram.sendMessage(playerToAsk.id, levels)
+    await telegram.sendMessage(playerToAsk.id, levels)
+    await telegram.sendMessage(playerToAsk.id, `(${numberRemaining} remaining)`)
+
     // be able to share an anecdote by voice or text of
     // how you first connected
 
     // listen for specific responses, and associate a response with a
-    // question
-    const response = await new Promise((resolve, reject) => {
-      eventBus.once(playerToAsk.id, (ctx) => {
-        resolve(ctx.message.text)
-      })
-    })
+    // question, validate them and loop indefinitely till we
+    // get a valid response
+    let invalidResponse = true
+    let response
+    while (invalidResponse) {
+      response = await playersNextMessageSent(playerToAsk.id)
+      let parsed = Number.parseInt(response)
+      if (parsed >= 0 && parsed <= 9) {
+        // this will break us out of the `while` loop
+        invalidResponse = false
+      } else {
+        // invalid response, so message them, and loop back to the start
+        telegram.sendMessage(
+          playerToAsk.id,
+          "that wasn't a valid response. try again with a number between 0 and 9"
+        )
+      }
+    }
 
     // create a connection object to return, like an edge in the graph
     return {
@@ -109,26 +181,46 @@ class Game {
       const playerToAskAbout = this.playerData[playerToAskAboutId]
       const connection = await this.playerAndPlayerConnection(
         playerToAsk,
-        playerToAskAbout
+        playerToAskAbout,
+        // number remaining
+        otherPlayers.length - i
       )
       // the yield keyword is what makes this a generator function
+      // it means that for this particular call, "yield" this result.
+      // similar to "return", but can be called succesively
       yield connection
     }
   }
 
   async askPlayerAboutAllPlayers(playerToAsk) {
+    // ask this player in SEQUENCE about every other player and their connection
+    // create an empty array to store all results
     const allPlayersConnections = []
+
     let generator = this.iteratePlayerConnections(playerToAsk)
     // because its an async generator, we can use `for await ... of`
+    // which awaits one result, before initiating the next call
     for await (let connection of generator) {
-      connections.push(connection)
+      // just push the result into the results array
+      allPlayersConnections.push(connection)
     }
+
+    // let them know they're done
+    await telegram.sendMessage(
+      playerToAsk.id,
+      'you have completed all of them! the group will be notified when ALL participants have completed and the results will be shared'
+    )
+
     return allPlayersConnections
   }
 
-  async startGame() {
-    // define game running logic here
+  async startGame(ctx) {
     this.running = true
+
+    // ask every player in PARALLEL about other players
+    // Promise.all gives us parallelization, along with just initiating all the promises
+    // without waiting for them to finish
+
     const promises = []
     this.players.forEach((playerId) => {
       const playerData = this.playerData[playerId]
@@ -140,8 +232,31 @@ class Game {
     const allConnections = await Promise.all(promises)
 
     // it has everyones responses to all connections
-    console.log(allConnections)
+    await ctx.reply('everyone has completed')
+    await ctx.reply('here are the responses')
+
+    // store all the data on the game
+    this.data = allConnections
+
+    // create a graph and present it to the group
+    this.archiveGame()
+
+    const markup = Extra.markup(
+      Markup.inlineKeyboard([Markup.gameButton('Show me!')])
+    )
+    return ctx.replyWithGame(GAME_SHORT_NAME, markup)
   }
+}
+/*
+/end GAME CLASS DEFINITION
+*/
+
+function playersNextMessageSent(playerId) {
+  return new Promise((resolve, reject) => {
+    eventBus.once(playerId, (ctx) => {
+      resolve(ctx.message.text)
+    })
+  })
 }
 
 // example of middleware
@@ -177,7 +292,7 @@ function groupMware(noisy = true) {
 function gameMware(noisy = true) {
   return async function gameMware(ctx, next) {
     const groupId = getGroupId(ctx)
-    const game = games[groupId]
+    const game = GAMES[groupId]
     if (!game) {
       if (noisy) {
         return ctx.reply(
@@ -193,13 +308,13 @@ function gameMware(noisy = true) {
 // the main /run command, initiate a new game
 bot.command('run', groupMware(), (ctx) => {
   const groupId = getGroupId(ctx)
-  if (games[groupId]) {
+  if (GAMES[groupId]) {
     return ctx.reply(
       'there is already a game in progress in this group. finish that one first'
     )
   }
   const game = new Game(groupId)
-  games[groupId] = game
+  GAMES[groupId] = game
   return ctx.reply(
     'who wants to play? reply with "me" if you do. run the /ready command when all players are in'
   )
@@ -207,19 +322,19 @@ bot.command('run', groupMware(), (ctx) => {
 
 // the /ready command, start a game that's been iniatiated and has players
 // gameMware will validate that there's a game in progress
-bot.command('ready', groupMware(), gameMware(), (ctx) => {
+bot.command('ready', groupMware(), gameMware(), async (ctx) => {
   const game = ctx.groupGame
   const LEAST_PLAYERS = 1
   if (game.players.length < LEAST_PLAYERS) {
     return ctx.reply('You need at least two players to start the game')
   }
 
-  // start the game
-  game.startGame()
-
-  return ctx.reply(
+  await ctx.reply(
     'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) and send me a message to initiate'
   )
+
+  // start the game
+  game.startGame(ctx)
 })
 
 // general text message handler
@@ -254,6 +369,23 @@ bot.hears(/.*/g, (ctx) => {
   eventBus.emit(userId, ctx)
 })
 
+const GAME_SHORT_NAME = 'connection_viz'
+const GAME_URL = 'https://8a0fb35c.ngrok.io/index.html'
+
+bot.gameQuery(async (ctx) => {
+  const groupId = ctx.update.callback_query.message.chat.id
+  let result
+  try {
+    result = await ctx.answerCbQuery(null, null, {
+      url: `${GAME_URL}?groupId=${groupId}`,
+      cache_time: 0,
+    })
+  } catch (e) {
+    console.log(e)
+  }
+  return result
+})
+
 /* PSEUDO CODE ZONE
 
 run graph analysis on results
@@ -263,3 +395,44 @@ share graph analysis image
 */
 
 bot.launch()
+
+// express js
+const app = express()
+const PORT = 5000
+const PUBLIC_FOLDER_NAME = 'public'
+app.use(express.static(PUBLIC_FOLDER_NAME))
+
+app.get('/data/:groupId', (req, res) => {
+  const groupId = req.params.groupId
+
+  const groupGames = ARCHIVED_GAMES[groupId]
+  if (!groupGames || !groupGames.length) {
+    return res.sendStatus(404)
+  }
+
+  const lastGame = groupGames.length - 1
+  const game = groupGames[lastGame]
+
+  const data = {
+    nodes: game.players.map((playerId) => {
+      const playerData = game.playerData[playerId]
+      return {
+        data: {
+          id: playerId,
+          name: `${playerData.first_name} ${playerData.last_name} (${playerData.username})`,
+        },
+      }
+    }),
+    edges: game.data.flat().map((d, index) => ({
+      data: {
+        id: index,
+        source: d.playerAsked.id,
+        target: d.playerAskedAbout.id,
+      },
+    })),
+  }
+
+  res.send(data)
+})
+
+app.listen(PORT, () => console.log(`App listening at http://localhost:${PORT}`))
