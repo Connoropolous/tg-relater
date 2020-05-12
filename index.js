@@ -41,29 +41,29 @@ class Game {
           first_name: 'Agent',
           last_name: '1',
           username: 'agent1',
-          test: true
+          test: true,
         },
         '2': {
           id: '2',
           first_name: 'Agent',
           last_name: '2',
           username: 'agent2',
-          test: true
+          test: true,
         },
         '3': {
           id: '3',
           first_name: 'Agent',
           last_name: '3',
           username: 'agent3',
-          test: true
+          test: true,
         },
         '4': {
           id: '4',
           first_name: 'Agent',
           last_name: '4',
           username: 'agent4',
-          test: true
-        }
+          test: true,
+        },
       }
     } else {
       this.players = []
@@ -233,7 +233,7 @@ class Game {
 
     // it has everyones responses to all connections
     await ctx.reply('everyone has completed')
-    await ctx.reply('here are the responses')
+    await ctx.reply('open the following link to see the graph of connections')
 
     // store all the data on the game
     this.data = allConnections
@@ -241,10 +241,10 @@ class Game {
     // create a graph and present it to the group
     this.archiveGame()
 
-    const markup = Extra.markup(
-      Markup.inlineKeyboard([Markup.gameButton('Show me!')])
+    const buttons = Extra.markup(
+      Markup.inlineKeyboard([Markup.gameButton('Show graph')])
     )
-    return ctx.replyWithGame(GAME_SHORT_NAME, markup)
+    return ctx.replyWithGame(GAME_SHORT_NAME, buttons)
   }
 }
 /*
@@ -320,7 +320,7 @@ bot.command('run', groupMware(), (ctx) => {
   )
 })
 
-// the /ready command, start a game that's been iniatiated and has players
+// the /ready command, start a game that's been initiated and has players
 // gameMware will validate that there's a game in progress
 bot.command('ready', groupMware(), gameMware(), async (ctx) => {
   const game = ctx.groupGame
@@ -337,7 +337,6 @@ bot.command('ready', groupMware(), gameMware(), async (ctx) => {
   game.startGame(ctx)
 })
 
-// general text message handler
 // in groupMware, fail silently
 // only respond to 'me' statements for me, joining in a game
 bot.hears(/me/, groupMware(false), gameMware(false), (ctx) => {
@@ -372,6 +371,8 @@ bot.hears(/.*/g, (ctx) => {
 const GAME_SHORT_NAME = 'connection_viz'
 const GAME_URL = 'https://8a0fb35c.ngrok.io/index.html'
 
+// handle a request to "play the game" by
+// sending back the live URL of the HTML game
 bot.gameQuery(async (ctx) => {
   const groupId = ctx.update.callback_query.message.chat.id
   let result
@@ -385,14 +386,6 @@ bot.gameQuery(async (ctx) => {
   }
   return result
 })
-
-/* PSEUDO CODE ZONE
-
-run graph analysis on results
-
-share graph analysis image
-
-*/
 
 bot.launch()
 
@@ -423,6 +416,9 @@ app.get('/data/:groupId', (req, res) => {
         },
       }
     }),
+    // since its an array of arrays, use `.flat()` to draw all data points
+    // up into one single, flat, array
+    // TODO: add STRENGTH metadata onto the edge
     edges: game.data.flat().map((d, index) => ({
       data: {
         id: index,
