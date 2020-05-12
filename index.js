@@ -13,12 +13,17 @@ const EventEmitter = require('events')
 // user id who sent the message
 const eventBus = new EventEmitter()
 
+
+// ENVIRONMENT VARIABLES
+const GAME_SHORT_NAME = process.env.GAME_SHORT_NAME
+const GAME_URL = process.env.GAME_URL
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
+const TESTING_MODE = process.env.TESTING_MODE === 'true'
+
 // documentation
 // https://telegraf.js.org/#/?id=introduction
-
-const token = process.env.TELEGRAM_BOT_TOKEN
-const bot = new Telegraf(token)
-const telegram = new Telegram(token)
+const bot = new Telegraf(BOT_TOKEN)
+const telegram = new Telegram(BOT_TOKEN)
 
 // key will be group id, value will be "game" being played
 // only one game per time in a group
@@ -28,7 +33,6 @@ const GAMES = {}
 /*
 /start GAME CLASS DEFINITION
 */
-const TESTING_MODE = false
 
 class Game {
   constructor(groupId) {
@@ -367,9 +371,6 @@ bot.hears(/.*/g, (ctx) => {
   // magic portal, using the userId as the event type (channel)
   eventBus.emit(userId, ctx)
 })
-
-const GAME_SHORT_NAME = 'connection_viz'
-const GAME_URL = 'https://8a0fb35c.ngrok.io/index.html'
 
 // handle a request to "play the game" by
 // sending back the live URL of the HTML game
