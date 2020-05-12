@@ -69,7 +69,7 @@ class Game {
         // how do I listen for specific responses, and associate a response with a
         // question?
         const response = await new Promise((resolve, reject) => {
-            eventBus.on(playerToAsk.id, (ctx) => {
+            eventBus.once(playerToAsk.id, (ctx) => {
                 resolve(ctx.message.text)
             })
         })
