@@ -2,6 +2,10 @@ const Telegraf = require('telegraf')
 const Telegram = require('telegraf/telegram')
 require('dotenv').config()
 
+const EventEmitter = require('events')
+
+const eventBus = new EventEmitter()
+
 // documentation
 // https://telegraf.js.org/#/?id=introduction
 
@@ -14,112 +18,278 @@ const telegram = new Telegram(token)
 const games = {}
 
 class Game {
-  constructor(groupId) {
-    this.groupId = groupId
-    this.players = []
-    this.playerData = {}
-  }
-  addPlayer(userId, userData) {
-    this.players.push(userId)
-    this.playerData[userId] = userData
-  }
+    constructor(groupId) {
+        this.groupId = groupId
+        this.players = []
+        this.playerData = {}
+        this.running = false
+    }
+
+    // during setup stage of the game
+    addPlayer(userId, userData) {
+        this.players.push(userId)
+        this.playerData[userId] = userData
+    }
+
+    // core 1-on-1 interaction to ask about how well someone knows someone else
+    async playerAndPlayerConnection(playerToAsk, playerToAskAbout) {
+
+        /*
+          id
+          first_name
+          last_name
+          username
+        */
+
+        console.log(
+            `detecting relationship between ${playerToAsk.id} and ${playerToAskAbout.id}`
+        )
+
+        const levels = `
+        0 - I've never seen / heard of them before online or otherwise 
+        1 - I've seen their name or avatar before, but we've never interacted in any way
+        2 - We've interacted a little online, but we've never been in each other's presence in any way before
+        3 - We've been in each other's presence, but have yet to talk
+        4 - We've met and/or introduced ourselves to each other.
+        5 - We've had some opportunites to get to know each other better, but not many
+        6 - We've had a 1on1 conversation together
+        7 - We've met/interacted many times and gotten to know each other
+        8 - We're good friends/colleagues
+        9 - We're partners/spouses
+        `
+
+        const otherPlayersName = playerToAskAbout.first_name
+        telegram.sendMessage(playerToAsk.id, `how well do you know ${otherPlayersName} (@${playerToAskAbout.username})`)
+        telegram.sendMessage(playerToAsk.id, `use the following guide to assign a number to your connection`)
+        telegram.sendMessage(playerToAsk.id, `type in the highest number that you would say is true about your connection, and send as a reply to this message`)
+        telegram.sendMessage(playerToAsk.id, levels)
+            // be able to share an anecdote by voice or text of
+            // how you first connected
+
+        // how do I listen for specific responses, and associate a response with a
+        // question?
+        const response = await new Promise((resolve, reject) => {
+            eventBus.on(playerToAsk.id, (ctx) => {
+                resolve(ctx.message.text)
+            })
+        })
+
+        // create a connection object to return, like an edge in the graph
+        return {
+            playerAsked: playerToAsk,
+            playerAskedAbout: playerToAskAbout,
+            strength: response
+        }
+    }
+
+    // generator function (my first time!)
+    async * iteratePlayerConnections(playerToAsk) {
+        // create a list of the IDs of other players
+        const otherPlayers = this.players.filter(
+            (playerId) => playerId !== playerToAsk.id
+        )
+
+        // run a loop, where, for each player, we ask the "playerToAsk" about the
+        // relationship with the "playerToAskAbout"
+        for (let i = 0; i < otherPlayers.length; i++) {
+            const playerToAskAboutId = otherPlayers[i]
+            const playerToAskAbout = this.playerData[playerToAskAboutId]
+            const connection = await this.playerAndPlayerConnection(
+                    playerToAsk,
+                    playerToAskAbout
+                )
+                // the yield keyword is what makes this a generator function
+            yield connection
+        }
+    }
+
+    async askPlayerAboutAllPlayers(playerToAsk) {
+        let connections = []
+        let generator = this.iteratePlayerConnections(playerToAsk)
+            // because its an async generator, we can use `for await ... of`
+        for await (let connection of generator) {
+            connections.push(connection)
+        }
+        return connections
+    }
+
+    async startGame() {
+        // define game running logic here
+        this.running = true
+        const promises = []
+        this.players.forEach((playerId) => {
+                const playerData = this.playerData[playerId]
+                const promise = this.askPlayerAboutAllPlayers(playerData)
+                    // push the promise onto the promises array, for inclusion in the Promise.all
+                promises.push(promise)
+            })
+            // this waits for every promise to finish
+        const allConnections = await Promise.all(promises)
+
+        // it has everyones responses to all connections
+        console.log(allConnections)
+    }
 }
 
 // example of middleware
-bot.use(async (ctx, next) => {
-  const start = new Date()
-  await next()
-  const ms = new Date() - start
-  console.log('Response time: %sms', ms)
+bot.use(async(ctx, next) => {
+    const start = new Date()
+    await next()
+    const ms = new Date() - start
+    console.log('Response time: %sms', ms)
 })
 
 function getGroupId(ctx) {
-  return ctx.update.message.chat.id
+    return ctx.update.message.chat.id
 }
 
 // Mware = middleware
 // verify this chat message occurred within a group setting
 function groupMware(noisy = true) {
-  return async function groupMware(ctx, next) {
-    if (ctx.update.message.chat.type !== 'group') {
-      if (noisy) {
-        return ctx.reply(
-          'game can only be played in a group setting. add me to a group'
-        )
-      } else return // silently do nothing
+    return async function groupMware(ctx, next) {
+        if (ctx.update.message.chat.type !== 'group') {
+            if (noisy) {
+                return ctx.reply(
+                    'game can only be played in a group setting. add me to a group'
+                )
+            } else return // silently do nothing
+        }
+        // in a group, carry on
+        return next()
     }
-    // in a group, carry on
-    return next()
-  }
 }
 
 // set a game onto the context for this group, if one exists
 // should already have been passed through groupMware to work
 function gameMware(noisy = true) {
-  return async function gameMware(ctx, next) {
-    const groupId = getGroupId(ctx)
-    const game = games[groupId]
-    if (!game) {
-      if (noisy) {
-        return ctx.reply(
-          'there is no game in progress in this group. start one by using /run'
-        )
-      } else return // silently do nothing
+    return async function gameMware(ctx, next) {
+        const groupId = getGroupId(ctx)
+        const game = games[groupId]
+        if (!game) {
+            if (noisy) {
+                return ctx.reply(
+                    'there is no game in progress in this group. start one by using /run'
+                )
+            } else return // silently do nothing
+        }
+        ctx.groupGame = game
+        return next()
     }
-    ctx.groupGame = game
-    return next()
-  }
 }
 
 // the main /run command, initiate a new game
 bot.command('run', groupMware(), (ctx) => {
-  const groupId = getGroupId(ctx)
-  if (games[groupId]) {
+    const groupId = getGroupId(ctx)
+    if (games[groupId]) {
+        return ctx.reply(
+            'there is already a game in progress in this group. finish that one first'
+        )
+    }
+    const game = new Game(groupId)
+    games[groupId] = game
     return ctx.reply(
-      'there is already a game in progress in this group. finish that one first'
+        'who wants to play? reply with "me" if you do. run the /ready command when all players are in'
     )
-  }
-  const game = new Game(groupId)
-  games[groupId] = game
-  return ctx.reply(
-    'who wants to play? reply with "me" if you do. run the /ready command when all players are in'
-  )
 })
 
 // the /ready command, start a game that's been iniatiated and has players
 // gameMware will validate that there's a game in progress
 bot.command('ready', groupMware(), gameMware(), (ctx) => {
-  const game = ctx.groupGame
-  const LEAST_PLAYERS = 1
-  if (game.players.length < LEAST_PLAYERS) {
-    return ctx.reply('You need at least two players to start the game')
-  }
-  // start the game
-  return ctx.reply(
-    'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) and send me a message to initiate'
-  )
+    const game = ctx.groupGame
+    const LEAST_PLAYERS = 1
+    if (game.players.length < LEAST_PLAYERS) {
+        return ctx.reply('You need at least two players to start the game')
+    }
+
+    // start the game
+    game.startGame()
+
+    return ctx.reply(
+        'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) and send me a message to initiate'
+    )
 })
 
 // general text message handler
 // in groupMware, fail silently
-bot.on('text', groupMware(false), gameMware(false), (ctx) => {
-  // only respond to 'me' statements for me, joining in a game
-  if (ctx.message.text !== 'me') return
+// only respond to 'me' statements for me, joining in a game
+bot.hears(/me/, groupMware(false), gameMware(false), (ctx) => {
 
-  const game = ctx.groupGame
-  const userId = ctx.update.message.from.id
-  const user = ctx.update.message.from
+    const game = ctx.groupGame
+    const userId = ctx.update.message.from.id
+    const user = ctx.update.message.from
 
-  // user.first_name
+    // user.first_name
 
-  if (game.players.indexOf(userId) > -1) {
-    return ctx.reply('you are already registered for the game')
-  }
+    // check if they already registered
+    if (game.players.indexOf(userId) > -1) {
+        return ctx.reply('you are already registered for the game')
+    }
 
-  game.addPlayer(userId, user)
-  // TODO: make a comment about sending "Me" the bot a DM, to initiate contact
-  return ctx.reply('added you to the game')
+    game.addPlayer(userId, user)
+        // TODO: make a comment about sending "Me" the bot a DM, to initiate contact
+    return ctx.reply('added you to the game')
 })
+
+
+bot.hears(/.*/g, (ctx) => {
+    // ignore non-DMs
+    if (ctx.update.message.chat.type !== 'private') return
+
+    const userId = ctx.update.message.from.id
+        // magic portal
+    eventBus.emit(userId, ctx)
+})
+
+/* PSEUDO CODE ZONE
+
+plan...
+
+- [x] = check mark (done)
+
+in the ready command, initiate a method call of `game.play()` that kicks off the actual game...
+
+- [x] define `game.play()` on the `Game` class as a method, like `addPlayer`
+
+In that `game.play()` method, initiate the process of one-on-one interactions with 'players'
+
+  in parallel, for each individual player
+    create a list of all players that excludes self
+    for each of those other players
+      ask how well the current player knows this player
+      // telegram.sendMessage('... ')
+      
+      // Nice this is good ... you could give 0, 1, 2, 3, 4, 5 options, numbered?
+      yeah
+      yea, ive spanned it from 0 to 1, but likely integer numbers will work better than some decimal estimate :P
+      
+      // Strength / Depth of connections
+        - 0 never seen / heard of them before online or otherwise
+        - Seen their name or avatar before, but have never interacted in any way
+        - I've seen them around in various spaces, 
+        - I can say that we've "met" each other 
+        - 1 if we were any more connected, you'd have to conclude we were identical
+      
+      
+      
+      
+      listen for their response
+      validate their response (and loop if invalid)
+      capture valid data result
+    end
+  end
+
+  wait for all players to complete
+
+
+
+...
+
+run graph analysis on results
+
+share graph analysis image
+
+
+*/
 
 // setInterval(() => {
 //   // 288989141
