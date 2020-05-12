@@ -395,6 +395,8 @@ const PORT = 5000
 const PUBLIC_FOLDER_NAME = 'public'
 app.use(express.static(PUBLIC_FOLDER_NAME))
 
+// DATA fetcher endpoint, where the data from a game, for a group,
+// is formatted to cytoscape friendly format
 app.get('/data/:groupId', (req, res) => {
   const groupId = req.params.groupId
 
@@ -403,16 +405,21 @@ app.get('/data/:groupId', (req, res) => {
     return res.sendStatus(404)
   }
 
+  // use the most recent game
+  // TODO: create a way to get results of a specific game instead
   const lastGame = groupGames.length - 1
   const game = groupGames[lastGame]
 
   const data = {
     nodes: game.players.map((playerId) => {
       const playerData = game.playerData[playerId]
+      const firstName = playerData.first_name ? playerData.first_name : ''
+      const lastName = playerData.last_name ? playerData.last_name : ''
+      const username = playerData.username ? playerData.username : ''
       return {
         data: {
           id: playerId,
-          name: `${playerData.first_name} ${playerData.last_name} (${playerData.username})`,
+          name: `${firstName} ${lastName} (${username})`,
         },
       }
     }),
