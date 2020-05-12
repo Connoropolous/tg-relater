@@ -21,6 +21,7 @@ class Game {
   constructor(groupId) {
     this.groupId = groupId
     this.players = []
+    // player data, keyed by player id
     this.playerData = {}
     this.running = false
   }
@@ -74,8 +75,8 @@ class Game {
     // be able to share an anecdote by voice or text of
     // how you first connected
 
-    // how do I listen for specific responses, and associate a response with a
-    // question?
+    // listen for specific responses, and associate a response with a
+    // question
     const response = await new Promise((resolve, reject) => {
       eventBus.once(playerToAsk.id, (ctx) => {
         resolve(ctx.message.text)
@@ -90,7 +91,7 @@ class Game {
     }
   }
 
-  // generator function (my first time!)
+  // generator function
   async *iteratePlayerConnections(playerToAsk) {
     // create a list of the IDs of other players
     const otherPlayers = this.players.filter(
@@ -112,13 +113,13 @@ class Game {
   }
 
   async askPlayerAboutAllPlayers(playerToAsk) {
-    let connections = []
+    const allPlayersConnections = []
     let generator = this.iteratePlayerConnections(playerToAsk)
     // because its an async generator, we can use `for await ... of`
     for await (let connection of generator) {
       connections.push(connection)
     }
-    return connections
+    return allPlayersConnections
   }
 
   async startGame() {
@@ -237,69 +238,24 @@ bot.hears(/me/, groupMware(false), gameMware(false), (ctx) => {
   return ctx.reply('added you to the game')
 })
 
+// match any message
 bot.hears(/.*/g, (ctx) => {
   // ignore non-DMs
   if (ctx.update.message.chat.type !== 'private') return
 
+  // forward DM messages over the event bus, so that we can
+  // dynamically subscribe and unsubscribe elsewhere in the code
   const userId = ctx.update.message.from.id
-  // magic portal
+  // magic portal, using the userId as the event type (channel)
   eventBus.emit(userId, ctx)
 })
 
 /* PSEUDO CODE ZONE
 
-plan...
-
-- [x] = check mark (done)
-
-in the ready command, initiate a method call of `game.play()` that kicks off the actual game...
-
-- [x] define `game.play()` on the `Game` class as a method, like `addPlayer`
-
-In that `game.play()` method, initiate the process of one-on-one interactions with 'players'
-
-  in parallel, for each individual player
-    create a list of all players that excludes self
-    for each of those other players
-      ask how well the current player knows this player
-      // telegram.sendMessage('... ')
-      
-      // Nice this is good ... you could give 0, 1, 2, 3, 4, 5 options, numbered?
-      yeah
-      yea, ive spanned it from 0 to 1, but likely integer numbers will work better than some decimal estimate :P
-      
-      // Strength / Depth of connections
-        - 0 never seen / heard of them before online or otherwise
-        - Seen their name or avatar before, but have never interacted in any way
-        - I've seen them around in various spaces, 
-        - I can say that we've "met" each other 
-        - 1 if we were any more connected, you'd have to conclude we were identical
-      
-      
-      
-      
-      listen for their response
-      validate their response (and loop if invalid)
-      capture valid data result
-    end
-  end
-
-  wait for all players to complete
-
-
-
-...
-
 run graph analysis on results
 
 share graph analysis image
 
-
 */
-
-// setInterval(() => {
-//   // 288989141
-//   // telegram.sendMessage(288989141, 'hi')
-// }, 3000)
 
 bot.launch()
