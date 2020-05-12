@@ -2,8 +2,12 @@ const Telegraf = require('telegraf')
 const Telegram = require('telegraf/telegram')
 require('dotenv').config()
 
+// EventEmitter type is built-in to nodejs, no package to install
 const EventEmitter = require('events')
 
+// this will transmit events from the telegram bot listeners
+// over an internal channel, where the events are named by the 
+// user id who sent the message
 const eventBus = new EventEmitter()
 
 // documentation
