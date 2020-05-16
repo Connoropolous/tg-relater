@@ -8,17 +8,20 @@ require('dotenv').config()
 // EventEmitter type is built-in to nodejs, no package to install
 const EventEmitter = require('events')
 
+// Local imports
+const convertGameDataToCytoscape = require('./cytoscape-converter')
+
 // this will transmit events from the telegram bot listeners
 // over an internal channel, where the events are named by the
 // user id who sent the message
 const eventBus = new EventEmitter()
-
 
 // ENVIRONMENT VARIABLES
 const GAME_SHORT_NAME = process.env.GAME_SHORT_NAME
 const GAME_URL = process.env.GAME_URL
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const TESTING_MODE = process.env.TESTING_MODE === 'true'
+const PORT = process.env.PORT
 
 // documentation
 // https://telegraf.js.org/#/?id=introduction
@@ -34,41 +37,44 @@ const GAMES = {}
 /start GAME CLASS DEFINITION
 */
 
+const testPlayerDataArray = ['1', '2', '3', '4']
+const testPlayerDataObject = {
+  '1': {
+    id: '1',
+    first_name: 'Agent',
+    last_name: '1',
+    username: 'agent1',
+    test: true,
+  },
+  '2': {
+    id: '2',
+    first_name: 'Agent',
+    last_name: '2',
+    username: 'agent2',
+    test: true,
+  },
+  '3': {
+    id: '3',
+    first_name: 'Agent',
+    last_name: '3',
+    username: 'agent3',
+    test: true,
+  },
+  '4': {
+    id: '4',
+    first_name: 'Agent',
+    last_name: '4',
+    username: 'agent4',
+    test: true,
+  },
+}
+
 class Game {
   constructor(groupId) {
     this.groupId = groupId
     if (TESTING_MODE) {
-      this.players = ['1', '2', '3', '4']
-      this.playerData = {
-        '1': {
-          id: '1',
-          first_name: 'Agent',
-          last_name: '1',
-          username: 'agent1',
-          test: true,
-        },
-        '2': {
-          id: '2',
-          first_name: 'Agent',
-          last_name: '2',
-          username: 'agent2',
-          test: true,
-        },
-        '3': {
-          id: '3',
-          first_name: 'Agent',
-          last_name: '3',
-          username: 'agent3',
-          test: true,
-        },
-        '4': {
-          id: '4',
-          first_name: 'Agent',
-          last_name: '4',
-          username: 'agent4',
-          test: true,
-        },
-      }
+      this.players = testPlayerDataArray
+      this.playerData = testPlayerDataObject
     } else {
       this.players = []
       // player data, keyed by player id
@@ -392,9 +398,27 @@ bot.launch()
 
 // express js
 const app = express()
-const PORT = 5000
 const PUBLIC_FOLDER_NAME = 'public'
 app.use(express.static(PUBLIC_FOLDER_NAME))
+
+if (TESTING_MODE) {
+  // DATA fetcher endpoint, where the data from a game, for a group,
+  // is formatted to cytoscape friendly format
+  app.get('/data/default-test', (req, res) => {
+    const game = new Game('123')
+    game.data = [
+      [
+        {
+          playerAsked: game.playerData[game.players[0]],
+          playerAskedAbout: game.playerData[game.players[1]],
+          strength: 0.4,
+        },
+      ],
+    ]
+    const cytoscapeData = convertGameDataToCytoscape(game)
+    res.send(cytoscapeData)
+  })
+}
 
 // DATA fetcher endpoint, where the data from a game, for a group,
 // is formatted to cytoscape friendly format
@@ -410,33 +434,8 @@ app.get('/data/:groupId', (req, res) => {
   // TODO: create a way to get results of a specific game instead
   const lastGame = groupGames.length - 1
   const game = groupGames[lastGame]
-
-  const data = {
-    nodes: game.players.map((playerId) => {
-      const playerData = game.playerData[playerId]
-      const firstName = playerData.first_name ? playerData.first_name : ''
-      const lastName = playerData.last_name ? playerData.last_name : ''
-      const username = playerData.username ? playerData.username : ''
-      return {
-        data: {
-          id: playerId,
-          name: `${firstName} ${lastName} (${username})`,
-        },
-      }
-    }),
-    // since its an array of arrays, use `.flat()` to draw all data points
-    // up into one single, flat, array
-    // TODO: add STRENGTH metadata onto the edge
-    edges: game.data.flat().map((d, index) => ({
-      data: {
-        id: index,
-        source: d.playerAsked.id,
-        target: d.playerAskedAbout.id,
-      },
-    })),
-  }
-
-  res.send(data)
+  const cytoscapeData = convertGameDataToCytoscape(game)
+  res.send(cytoscapeData)
 })
 
 app.listen(PORT, () => console.log(`App listening at http://localhost:${PORT}`))

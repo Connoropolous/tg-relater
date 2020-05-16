@@ -13,47 +13,14 @@
       src="https://cdn.jsdelivr.net/npm/cytoscape@3.15.0/dist/cytoscape.min.js"
     ></script>
     <style>
-      #test {
+      #container {
         width: 100vw;
         height: 100vh;
       }
     </style>
   </head>
   <body>
-    <div id="test"></div>
-    <script>
-      const params = new URLSearchParams(window.location.search)
-      const groupId = params.get('groupId')
-      fetch(`/data/${groupId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          console.log(data)
-          cytoscape({
-            container: document.getElementById('test'),
-            elements: data,
-            style: [
-              // the stylesheet for the graph
-              {
-                selector: 'node',
-                style: {
-                  'background-color': '#666',
-                  label: 'data(name)',
-                },
-              },
-
-              {
-                selector: 'edge',
-                style: {
-                  width: 3,
-                  'line-color': '#ccc',
-                  'target-arrow-color': '#ccc',
-                  'target-arrow-shape': 'triangle',
-                  'curve-style': 'bezier',
-                },
-              },
-            ],
-          })
-        })
-    </script>
+    <div id="container"></div>
+    <script type="text/javascript" src="index.js"></script>
   </body>
 </html>
