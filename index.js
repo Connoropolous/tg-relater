@@ -10,6 +10,7 @@ const EventEmitter = require('events')
 
 // Local imports
 const convertGameDataToCytoscape = require('./cytoscape-converter')
+const { generateTestEdges, generateTestPlayerData } = require('./test-data')
 
 // this will transmit events from the telegram bot listeners
 // over an internal channel, where the events are named by the
@@ -22,6 +23,10 @@ const GAME_URL = process.env.GAME_URL
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const TESTING_MODE = process.env.TESTING_MODE === 'true'
 const PORT = process.env.PORT
+
+// TEST VARIABLES THAT CAN BE TWEAKED DURING TESTING
+const NUMBER_OF_TEST_PLAYERS = 6
+const NETWORK_DENSITY_PERCENT = 100
 
 // documentation
 // https://telegraf.js.org/#/?id=introduction
@@ -37,44 +42,13 @@ const GAMES = {}
 /start GAME CLASS DEFINITION
 */
 
-const testPlayerDataArray = ['1', '2', '3', '4']
-const testPlayerDataObject = {
-  '1': {
-    id: '1',
-    first_name: 'Agent',
-    last_name: '1',
-    username: 'agent1',
-    test: true,
-  },
-  '2': {
-    id: '2',
-    first_name: 'Agent',
-    last_name: '2',
-    username: 'agent2',
-    test: true,
-  },
-  '3': {
-    id: '3',
-    first_name: 'Agent',
-    last_name: '3',
-    username: 'agent3',
-    test: true,
-  },
-  '4': {
-    id: '4',
-    first_name: 'Agent',
-    last_name: '4',
-    username: 'agent4',
-    test: true,
-  },
-}
-
 class Game {
   constructor(groupId) {
     this.groupId = groupId
     if (TESTING_MODE) {
-      this.players = testPlayerDataArray
-      this.playerData = testPlayerDataObject
+      const testPlayerData = generateTestPlayerData(NUMBER_OF_TEST_PLAYERS)
+      this.players = testPlayerData.players
+      this.playerData = testPlayerData.playerData
     } else {
       this.players = []
       // player data, keyed by player id
@@ -406,16 +380,14 @@ if (TESTING_MODE) {
   // is formatted to cytoscape friendly format
   app.get('/data/default-test', (req, res) => {
     const game = new Game('123')
-    game.data = [
-      [
-        {
-          playerAsked: game.playerData[game.players[0]],
-          playerAskedAbout: game.playerData[game.players[1]],
-          strength: 0.4,
-        },
-      ],
-    ]
+    // everyones responses
+    const densityPercentage = NETWORK_DENSITY_PERCENT
+    game.data = generateTestEdges(game, densityPercentage)
+
+    // convert game data to cytoscape format
     const cytoscapeData = convertGameDataToCytoscape(game)
+
+    // send the data back as the response to the http request
     res.send(cytoscapeData)
   })
 }

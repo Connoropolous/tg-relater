@@ -1,5 +1,5 @@
 const runCytoscape = (cytoscapeData) => {
-  cytoscape({
+  let cy = cytoscape({
     container: document.getElementById('container'),
     elements: cytoscapeData,
     style: [
@@ -21,10 +21,31 @@ const runCytoscape = (cytoscapeData) => {
           'target-arrow-color': '#ccc',
           'target-arrow-shape': 'triangle',
           'curve-style': 'bezier',
+          label: function (edge) {
+            return edge.data('strength') + ' ' + edge.data('playerAskedName')
+          },
         },
       },
     ],
   })
+
+  let layout = cy.layout({
+    name: 'cose',
+    // Node repulsion (non overlapping) multiplier
+    nodeRepulsion: function (node) {
+      return 500000000
+    },
+    idealEdgeLength: function (edge) {
+      return (1 - edge.data('strength')) * 400
+    },
+    // Divisor to compute edge forces
+    edgeElasticity: function (edge) {
+      return (1 - edge.data('strength')) * 400
+    },
+    // Gravity force (constant)
+    gravity: 1,
+  })
+  layout.run()
 }
 
 // main function to execute
