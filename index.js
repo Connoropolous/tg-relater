@@ -143,11 +143,14 @@ class Game {
       }
     }
 
+    // multiply it down to a decimal
+    let alteredResponse = (response * 0.1).toFixed(1)
+
     // create a connection object to return, like an edge in the graph
     return {
       playerAsked: playerToAsk,
       playerAskedAbout: playerToAskAbout,
-      strength: response,
+      strength: alteredResponse,
     }
   }
 
@@ -177,6 +180,11 @@ class Game {
   }
 
   async askPlayerAboutAllPlayers(playerToAsk) {
+    // skip over test players, in terms of asking them
+    if (playerToAsk.test) {
+      return []
+    }
+
     // ask this player in SEQUENCE about every other player and their connection
     // create an empty array to store all results
     const allPlayersConnections = []
