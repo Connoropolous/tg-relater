@@ -92,6 +92,15 @@ class Game {
         */
 
     const levels = `
+
+        `
+
+    const otherPlayersName = playerToAskAbout.first_name
+    await telegram.sendMessage(
+      playerToAsk.id,
+      `how well do you know ${otherPlayersName} (@${playerToAskAbout.username})?
+use the following guide to assign a number to your connection
+type in the highest number that you would say is true about your connection, and send as a reply to this message
 0 - I've never seen / heard of them before online or otherwise 
 1 - I've seen their name or avatar before, but we've never interacted in any way
 2 - We've interacted a little online, but we've never been in each other's presence in any way before
@@ -102,23 +111,8 @@ class Game {
 7 - We've met/interacted many times and gotten to know each other
 8 - We're good friends/colleagues
 9 - We're partners/spouses
-        `
-
-    const otherPlayersName = playerToAskAbout.first_name
-    await telegram.sendMessage(
-      playerToAsk.id,
-      `how well do you know ${otherPlayersName} (@${playerToAskAbout.username})`
+(${numberRemaining} remaining)`
     )
-    await telegram.sendMessage(
-      playerToAsk.id,
-      `use the following guide to assign a number to your connection`
-    )
-    await telegram.sendMessage(
-      playerToAsk.id,
-      `type in the highest number that you would say is true about your connection, and send as a reply to this message`
-    )
-    await telegram.sendMessage(playerToAsk.id, levels)
-    await telegram.sendMessage(playerToAsk.id, `(${numberRemaining} remaining)`)
 
     // be able to share an anecdote by voice or text of
     // how you first connected
@@ -136,7 +130,7 @@ class Game {
         invalidResponse = false
       } else {
         // invalid response, so message them, and loop back to the start
-        telegram.sendMessage(
+        await telegram.sendMessage(
           playerToAsk.id,
           "that wasn't a valid response. try again with a number between 0 and 9"
         )
