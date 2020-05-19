@@ -5,14 +5,32 @@ function getPlayerName(playerData) {
   return `${firstName} ${lastName} (${username})`
 }
 
-function convertGameDataToCytoscape(gameInstance) {
+async function convertGameDataToCytoscape(telegram, gameInstance) {
+  const profilePhotos = []
+  for await (let playerId of gameInstance.players) {
+    let playerData = gameInstance.playerData[playerId]
+    let profilePhoto
+    if (!playerData.test) {
+      try {
+        let pics = await telegram.getUserProfilePhotos(playerId)
+        profilePhoto = `/profiles/${pics.photos[0][1].file_id}`
+      } catch (e) {}
+    }
+    // add a default
+    profilePhoto =
+      profilePhoto ||
+      'https://static.independent.co.uk/s3fs-public/thumbnails/image/2015/12/04/15/harry-potter-philosophers-stone.jpg'
+    profilePhotos.push(profilePhoto)
+  }
+
   let cytoscapeData = {
-    nodes: gameInstance.players.map((playerId) => {
+    nodes: gameInstance.players.map((playerId, index) => {
       const playerData = gameInstance.playerData[playerId]
       return {
         data: {
           id: playerId,
           name: getPlayerName(playerData),
+          profile: profilePhotos[index],
         },
       }
     }),

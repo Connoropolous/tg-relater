@@ -8,6 +8,15 @@ const runCytoscape = (cytoscapeData) => {
         selector: 'node',
         style: {
           'background-color': '#666',
+          'background-image': 'data(profile)',
+          'background-fit': 'cover',
+          // betweennessCentrality = a data value set by a calculation run only once
+          // 0 = the minimum value expected of betweennessCentrality for the node
+          // 50 = the maximum value to use in the mapping from betweennessCentrality to node size
+          // 20 = the number to use when betweennessCentrality is 0
+          // 100 = the number to use when betweennessCentrality is 50 or higher
+          width: 'mapData(betweennessCentrality, 0, 50, 20, 100)',
+          height: 'mapData(betweennessCentrality, 0, 50, 20, 100)',
           // use the 'name' property of data as the label of the node
           label: 'data(name)',
         },
@@ -16,13 +25,17 @@ const runCytoscape = (cytoscapeData) => {
       {
         selector: 'edge',
         style: {
-          width: 3,
+          //width: 3,
+          width: function (edge) {
+            return edge.data('strength') * 15
+          },
           'line-color': '#ccc',
           'target-arrow-color': '#ccc',
-          'target-arrow-shape': 'triangle',
+          'target-arrow-shape': 'vee',
+          'text-rotation': 'autorotate',
           'curve-style': 'bezier',
           label: function (edge) {
-            return edge.data('strength') + ' ' + edge.data('playerAskedName')
+            return edge.data('strength') // + ' ' + edge.data('playerAskedName')
           },
         },
       },
@@ -33,19 +46,33 @@ const runCytoscape = (cytoscapeData) => {
     name: 'cose',
     // Node repulsion (non overlapping) multiplier
     nodeRepulsion: function (node) {
-      return 500000000
+      return 5000000
     },
+    /*
     idealEdgeLength: function (edge) {
+      // this is how we modify edge length according to the strength data
+      // off of an edge. Cool, thx :P
       return (1 - edge.data('strength')) * 400
     },
+    */
+
     // Divisor to compute edge forces
     edgeElasticity: function (edge) {
-      return (1 - edge.data('strength')) * 400
+      return (1 - edge.data('strength')) * 2000
     },
+
     // Gravity force (constant)
     gravity: 1,
   })
   layout.run()
+
+  // calculate betweennessCentrality and set that data as values
+  // on each individual node
+  const betweennessCentrality = cy.nodes().betweennessCentrality()
+  cy.nodes().forEach((node, index) => {
+    const nodeBetweenness = betweennessCentrality.betweenness(`#${node.id()}`)
+    node.data('betweennessCentrality', nodeBetweenness)
+  })
 }
 
 // main function to execute

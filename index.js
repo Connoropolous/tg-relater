@@ -3,6 +3,7 @@ const Telegram = require('telegraf/telegram')
 const Extra = require('telegraf/extra')
 const Markup = require('telegraf/markup')
 const express = require('express')
+const request = require('request')
 require('dotenv').config()
 
 // EventEmitter type is built-in to nodejs, no package to install
@@ -25,8 +26,8 @@ const TESTING_MODE = process.env.TESTING_MODE === 'true'
 const PORT = process.env.PORT
 
 // TEST VARIABLES THAT CAN BE TWEAKED DURING TESTING
-const NUMBER_OF_TEST_PLAYERS = 6
-const NETWORK_DENSITY_PERCENT = 100
+const NUMBER_OF_TEST_PLAYERS = 2
+const NETWORK_DENSITY_PERCENT = 40
 
 // documentation
 // https://telegraf.js.org/#/?id=introduction
@@ -58,8 +59,8 @@ class Game {
   }
 
   /*
-    built-in methods for Game instances
-  */
+                                    built-in methods for Game instances
+                                  */
 
   // during setup stage of the game
   addPlayer(userId, userData) {
@@ -84,17 +85,6 @@ class Game {
     playerToAskAbout,
     numberRemaining
   ) {
-    /*
-          id
-          first_name
-          last_name
-          username
-        */
-
-    const levels = `
-
-        `
-
     const otherPlayersName = playerToAskAbout.first_name
     await telegram.sendMessage(
       playerToAsk.id,
@@ -138,7 +128,7 @@ type in the highest number that you would say is true about your connection, and
     }
 
     // multiply it down to a decimal
-    let alteredResponse = (response * 0.1).toFixed(1)
+    let alteredResponse = (response / 9).toFixed(2)
 
     // create a connection object to return, like an edge in the graph
     return {
@@ -230,7 +220,10 @@ type in the highest number that you would say is true about your connection, and
     const buttons = Extra.markup(
       Markup.inlineKeyboard([Markup.gameButton('Show graph')])
     )
-    return ctx.replyWithGame(GAME_SHORT_NAME, buttons)
+    await ctx.replyWithGame(GAME_SHORT_NAME, buttons)
+    return ctx.reply(
+      `You can also view the results directly in your browser by visiting: ${GAME_URL}?groupId=${this.groupId}`
+    )
   }
 }
 /*
@@ -310,7 +303,7 @@ bot.command('run', groupMware(), (ctx) => {
 // gameMware will validate that there's a game in progress
 bot.command('ready', groupMware(), gameMware(), async (ctx) => {
   const game = ctx.groupGame
-  const LEAST_PLAYERS = 1
+  const LEAST_PLAYERS = TESTING_MODE ? 1 : 2
   if (game.players.length < LEAST_PLAYERS) {
     return ctx.reply('You need at least two players to start the game')
   }
@@ -380,14 +373,14 @@ app.use(express.static(PUBLIC_FOLDER_NAME))
 if (TESTING_MODE) {
   // DATA fetcher endpoint, where the data from a game, for a group,
   // is formatted to cytoscape friendly format
-  app.get('/data/default-test', (req, res) => {
+  app.get('/data/default-test', async (req, res) => {
     const game = new Game('123')
     // everyones responses
     const densityPercentage = NETWORK_DENSITY_PERCENT
     game.data = generateTestEdges(game, densityPercentage)
 
     // convert game data to cytoscape format
-    const cytoscapeData = convertGameDataToCytoscape(game)
+    const cytoscapeData = await convertGameDataToCytoscape(telegram, game)
 
     // send the data back as the response to the http request
     res.send(cytoscapeData)
@@ -396,7 +389,7 @@ if (TESTING_MODE) {
 
 // DATA fetcher endpoint, where the data from a game, for a group,
 // is formatted to cytoscape friendly format
-app.get('/data/:groupId', (req, res) => {
+app.get('/data/:groupId', async (req, res) => {
   const groupId = req.params.groupId
 
   const groupGames = ARCHIVED_GAMES[groupId]
@@ -408,8 +401,13 @@ app.get('/data/:groupId', (req, res) => {
   // TODO: create a way to get results of a specific game instead
   const lastGame = groupGames.length - 1
   const game = groupGames[lastGame]
-  const cytoscapeData = convertGameDataToCytoscape(game)
+  const cytoscapeData = await convertGameDataToCytoscape(telegram, game)
   res.send(cytoscapeData)
+})
+
+app.get('/profiles/:file_id', async (req, res) => {
+  let pic_url = await telegram.getFileLink(req.params.file_id) // midsize 320 x 320
+  request(pic_url).pipe(res)
 })
 
 app.listen(PORT, () => console.log(`App listening at http://localhost:${PORT}`))
