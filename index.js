@@ -26,7 +26,7 @@ const TESTING_MODE = process.env.TESTING_MODE === 'true'
 const PORT = process.env.PORT
 
 // TEST VARIABLES THAT CAN BE TWEAKED DURING TESTING
-const NUMBER_OF_TEST_PLAYERS = 2
+const NUMBER_OF_TEST_PLAYERS = 5
 const NETWORK_DENSITY_PERCENT = 40
 
 // documentation
@@ -59,8 +59,8 @@ class Game {
   }
 
   /*
-                                    built-in methods for Game instances
-                                  */
+                                              built-in methods for Game instances
+                                            */
 
   // during setup stage of the game
   addPlayer(userId, userData) {
@@ -88,9 +88,12 @@ class Game {
     const otherPlayersName = playerToAskAbout.first_name
     await telegram.sendMessage(
       playerToAsk.id,
-      `how well do you know ${otherPlayersName} (@${playerToAskAbout.username})?
-use the following guide to assign a number to your connection
-type in the highest number that you would say is true about your connection, and send as a reply to this message
+      `How well do you know ${otherPlayersName} (@${playerToAskAbout.username})?
+
+Use the following guide to assign a number to your connection:
+
+Type in the highest number that you would say is true about your connection, and send as a reply to this message
+
 0 - I've never seen / heard of them before online or otherwise 
 1 - I've seen their name or avatar before, but we've never interacted in any way
 2 - We've interacted a little online, but we've never been in each other's presence in any way before
@@ -101,6 +104,7 @@ type in the highest number that you would say is true about your connection, and
 7 - We've met/interacted many times and gotten to know each other
 8 - We're good friends/colleagues
 9 - We're partners/spouses
+
 (${numberRemaining} remaining)`
     )
 
@@ -295,7 +299,7 @@ bot.command('run', groupMware(), (ctx) => {
   const game = new Game(groupId)
   GAMES[groupId] = game
   return ctx.reply(
-    'who wants to play? reply with "me" if you do. run the /ready command when all players are in'
+    'who wants to play? reply with "me" if you do. If this is your first time playing, please click this link, @relater_bot , and send the bot any message at all before returning here. run the /ready command when all players are in'
   )
 })
 
@@ -309,7 +313,7 @@ bot.command('ready', groupMware(), gameMware(), async (ctx) => {
   }
 
   await ctx.reply(
-    'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) and send me a message to initiate'
+    'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) to play'
   )
 
   // start the game

@@ -15,8 +15,8 @@ const runCytoscape = (cytoscapeData) => {
           // 50 = the maximum value to use in the mapping from betweennessCentrality to node size
           // 20 = the number to use when betweennessCentrality is 0
           // 100 = the number to use when betweennessCentrality is 50 or higher
-          width: 'mapData(betweennessCentrality, 0, 50, 20, 100)',
-          height: 'mapData(betweennessCentrality, 0, 50, 20, 100)',
+          width: 'mapData(betweennessCentrality, 0, 50, 20, 300)',
+          height: 'mapData(betweennessCentrality, 0, 50, 20, 300)',
           // use the 'name' property of data as the label of the node
           label: 'data(name)',
         },
@@ -49,12 +49,12 @@ const runCytoscape = (cytoscapeData) => {
       return 5000000
     },
     /*
-    idealEdgeLength: function (edge) {
-      // this is how we modify edge length according to the strength data
-      // off of an edge. Cool, thx :P
-      return (1 - edge.data('strength')) * 400
-    },
-    */
+                            idealEdgeLength: function (edge) {
+                              // this is how we modify edge length according to the strength data
+                              // off of an edge. Cool, thx :P
+                              return (1 - edge.data('strength')) * 400
+                            },
+                            */
 
     // Divisor to compute edge forces
     edgeElasticity: function (edge) {
@@ -68,7 +68,11 @@ const runCytoscape = (cytoscapeData) => {
 
   // calculate betweennessCentrality and set that data as values
   // on each individual node
-  const betweennessCentrality = cy.nodes().betweennessCentrality()
+  const betweennessCentrality = cy.nodes().betweennessCentrality({
+    weight: function (edge) {
+      return edge.data('strength')
+    },
+  })
   cy.nodes().forEach((node, index) => {
     const nodeBetweenness = betweennessCentrality.betweenness(`#${node.id()}`)
     node.data('betweennessCentrality', nodeBetweenness)
