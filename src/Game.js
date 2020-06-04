@@ -188,12 +188,12 @@ Type in the highest number that you would say is true about your connection, and
     // store all the data on the game
     this.data = allConnections
 
-    const buttons = Extra.markup(
-      Markup.inlineKeyboard([Markup.gameButton('Show graph')])
-    )
-    await ctx.replyWithGame(GAME_SHORT_NAME, buttons)
+    // const buttons = Extra.markup(
+    //   Markup.inlineKeyboard([Markup.gameButton('Show graph')])
+    // )
+    // await ctx.replyWithGame(GAME_SHORT_NAME, buttons)
     return ctx.reply(
-      `You can also view the results directly in your browser by visiting: ${this.gameUrl}?groupId=${this.groupId}&gameId=${this.id}`
+      `View the results in your browser by visiting: ${this.gameUrl}?groupId=${this.groupId}&gameId=${this.id}`
     )
   }
 }
