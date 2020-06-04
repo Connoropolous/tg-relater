@@ -207,18 +207,19 @@ if (TESTING_MODE) {
   // DATA fetcher endpoint, where the data from a game, for a group,
   // is formatted to cytoscape friendly format
   app.get('/data/default-test/default-test', async (req, res) => {
-    const game = new Game({
-      groupId: '123',
-      telegram,
-      messageBus,
-      gameUrl: GAME_URL,
-    })
-    // everyones responses
-    const densityPercentage = NETWORK_DENSITY_PERCENT
-    game.data = generateTestEdges(game, densityPercentage)
+    // const game = new Game({
+    //   groupId: '123',
+    //   telegram,
+    //   messageBus,
+    //   gameUrl: GAME_URL,
+    // })
+    // // everyones responses
+    // const densityPercentage = NETWORK_DENSITY_PERCENT
+    // game.data = generateTestEdges(game, densityPercentage)
 
-    // convert game data to cytoscape format
-    const cytoscapeData = await convertGameDataToCytoscape(telegram, game)
+    // // convert game data to cytoscape format
+    // const cytoscapeData = await convertGameDataToCytoscape(telegram, game)
+    const cytoscapeData = require('./rsf-flow-metacaugs.json')
 
     // send the data back as the response to the http request
     res.send(cytoscapeData)
@@ -245,8 +246,13 @@ app.get('/data/:groupId/:gameId', async (req, res) => {
 
 //  handle profile picture requests the weird telegram way
 app.get('/profiles/:file_id', async (req, res) => {
-  let pic_url = await telegram.getFileLink(req.params.file_id) // midsize 320 x 320
-  request(pic_url).pipe(res)
+  try {
+    let pic_url = await telegram.getFileLink(req.params.file_id) // midsize 320 x 320
+    request(pic_url).pipe(res)
+  } catch (e) {
+    console.log('could not fetch profile image: ' + e.message)
+    res.sendStatus(404)
+  }
 })
 
 app.listen(PORT, () => console.log(`App listening at http://localhost:${PORT}`))

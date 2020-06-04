@@ -10,13 +10,14 @@ const runCytoscape = (cytoscapeData) => {
           'background-color': '#666',
           'background-image': 'data(profile)',
           'background-fit': 'cover',
+          'font-size': 4,
           // betweennessCentrality = a data value set by a calculation run only once
           // 0 = the minimum value expected of betweennessCentrality for the node
           // 50 = the maximum value to use in the mapping from betweennessCentrality to node size
           // 20 = the number to use when betweennessCentrality is 0
           // 100 = the number to use when betweennessCentrality is 50 or higher
-          width: 'mapData(betweennessCentrality, 0, 50, 20, 300)',
-          height: 'mapData(betweennessCentrality, 0, 50, 20, 300)',
+          width: 'mapData(betweennessCentrality, 0, 50, 10, 40)',
+          height: 'mapData(betweennessCentrality, 0, 50, 10, 40)',
           // use the 'name' property of data as the label of the node
           label: 'data(name)',
         },
@@ -27,10 +28,12 @@ const runCytoscape = (cytoscapeData) => {
         style: {
           //width: 3,
           width: function (edge) {
-            return edge.data('strength') * 15
+            return edge.data('strength') * 4
           },
-          'line-color': '#ccc',
-          'target-arrow-color': '#ccc',
+          'line-color': '#CCC',
+          'target-arrow-color': '#CCC',
+          opacity: 0.5,
+          'font-size': 2,
           'target-arrow-shape': 'vee',
           'text-rotation': 'autorotate',
           'curve-style': 'bezier',
@@ -43,26 +46,26 @@ const runCytoscape = (cytoscapeData) => {
   })
 
   let layout = cy.layout({
-    name: 'cose',
-    // Node repulsion (non overlapping) multiplier
-    nodeRepulsion: function (/* node */) {
-      return 5000000
-    },
-    /*
-                            idealEdgeLength: function (edge) {
-                              // this is how we modify edge length according to the strength data
-                              // off of an edge. Cool, thx :P
-                              return (1 - edge.data('strength')) * 400
-                            },
-                            */
+    name: 'cola',
+    // // Node repulsion (non overlapping) multiplier
+    // nodeRepulsion: function (/* node */) {
+    //   return 5000000
+    // },
+    // /*
+    //                         idealEdgeLength: function (edge) {
+    //                           // this is how we modify edge length according to the strength data
+    //                           // off of an edge. Cool, thx :P
+    //                           return (1 - edge.data('strength')) * 400
+    //                         },
+    //                         */
 
-    // Divisor to compute edge forces
-    edgeElasticity: function (edge) {
-      return (1 - edge.data('strength')) * 2000
-    },
+    // // Divisor to compute edge forces
+    // edgeElasticity: function (edge) {
+    //   return (1 - edge.data('strength')) * 2000
+    // },
 
-    // Gravity force (constant)
-    gravity: 1,
+    // // Gravity force (constant)
+    // gravity: 1,
   })
   layout.run()
 
@@ -72,6 +75,7 @@ const runCytoscape = (cytoscapeData) => {
     weight: function (edge) {
       return edge.data('strength')
     },
+    alpha: 1,
   })
   cy.nodes().forEach((node) => {
     const nodeBetweenness = betweennessCentrality.betweenness(`#${node.id()}`)
