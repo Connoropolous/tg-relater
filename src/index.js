@@ -31,21 +31,21 @@ const NETWORK_DENSITY_PERCENT = 40
 const bot = new Telegraf(BOT_TOKEN)
 const telegram = new Telegram(BOT_TOKEN)
 
-// key will be space id, value will be "game" being played
-// only one game per time in a space
+// key will be group id, value will be "game" being played
+// only one game per time in a group
 const ARCHIVED_GAMES = {}
 const GAMES = {}
 
-function archiveGame(spaceId) {
+function archiveGame(groupId) {
   // make sure the array for archiving this groups games exists
-  if (!ARCHIVED_GAMES[spaceId]) {
-    ARCHIVED_GAMES[spaceId] = []
+  if (!ARCHIVED_GAMES[groupId]) {
+    ARCHIVED_GAMES[groupId] = []
   }
   // add it to this groups archived game list
-  const game = GAMES[spaceId]
-  ARCHIVED_GAMES[spaceId].push(game)
+  const game = GAMES[groupId]
+  ARCHIVED_GAMES[groupId].push(game)
   // remove it from the active games reference
-  delete GAMES[spaceId]
+  delete GAMES[groupId]
 }
 
 // example of middleware
@@ -60,12 +60,12 @@ function getMessage(ctx) {
   return ctx.update.message
 }
 
-function getSpaceId(ctx) {
+function getGroupId(ctx) {
   return getMessage(ctx).chat.id
 }
 
 // Mware = middleware
-// verify this chat message occurred within a space setting
+// verify this chat message occurred within a group setting
 function groupMware(noisy = true) {
   return async function groupMware(ctx, next) {
     const message = getMessage(ctx)
@@ -78,21 +78,21 @@ function groupMware(noisy = true) {
         )
       } else return // silently do nothing
     }
-    // in a space, carry on
+    // in a group, carry on
     return next()
   }
 }
 
-// set a game onto the context for this space, if one exists
+// set a game onto the context for this group, if one exists
 // should already have been passed through groupMware to work
 function gameMware(noisy = true) {
   return async function gameMware(ctx, next) {
-    const spaceId = getSpaceId(ctx)
-    const game = GAMES[spaceId]
+    const groupId = getGroupId(ctx)
+    const game = GAMES[groupId]
     if (!game) {
       if (noisy) {
         return ctx.reply(
-          'there is no game in progress in this space. start one by using /run'
+          'there is no game in progress in this group. start one by using /run'
         )
       } else return // silently do nothing
     }
@@ -103,14 +103,14 @@ function gameMware(noisy = true) {
 
 // the main /run command, initiate a new game
 bot.command('run', groupMware(), (ctx) => {
-  const spaceId = getSpaceId(ctx)
-  if (GAMES[spaceId]) {
+  const groupId = getGroupId(ctx)
+  if (GAMES[groupId]) {
     return ctx.reply(
-      'there is already a game in progress in this space. finish that one first.'
+      'there is already a game in progress in this group. finish that one first.'
     )
   }
-  const game = new Game({ spaceId, telegram, messageBus, gameUrl: GAME_URL })
-  GAMES[spaceId] = game
+  const game = new Game({ groupId, telegram, messageBus, gameUrl: GAME_URL })
+  GAMES[groupId] = game
   return ctx.reply(
     'who wants to play? reply with "me" if you do. If this is your first time playing, please click this link, @relater_bot , and send the bot any message at all before returning here. run the /ready command when all players are in'
   )
@@ -122,14 +122,14 @@ function noReadyTwice(ctx, next) {
   const game = ctx.groupGame
   if (game.running) {
     return ctx.reply(
-      'there is already a game in progress in this space. finish that one first.'
+      'there is already a game in progress in this group. finish that one first.'
     )
   } else {
     return next()
   }
 }
 bot.command('ready', groupMware(), gameMware(), noReadyTwice, async (ctx) => {
-  const spaceId = getSpaceId(ctx)
+  const groupId = getGroupId(ctx)
   const game = ctx.groupGame
   const LEAST_PLAYERS = TESTING_MODE ? 1 : 2
   if (game.players.length < LEAST_PLAYERS) {
@@ -143,7 +143,7 @@ bot.command('ready', groupMware(), gameMware(), noReadyTwice, async (ctx) => {
   // start the game
   game.startGame(ctx).then(() => {
     // this is necessary to make it available for viewing
-    archiveGame(spaceId)
+    archiveGame(groupId)
   })
 })
 
@@ -182,12 +182,12 @@ bot.hears(/.*/g, (ctx) => {
 // handle a request to "play the game" by
 // sending back the live URL of the HTML game
 bot.gameQuery(async (ctx) => {
-  const spaceId = ctx.update.callback_query.message.chat.id
+  const groupId = ctx.update.callback_query.message.chat.id
   let result
   try {
     result = await ctx.answerCbQuery(null, null, {
       // TODO find a way to get gameId in here
-      url: `${GAME_URL}?spaceId=${spaceId}&gameId=`,
+      url: `${GAME_URL}?groupId=${groupId}&gameId=`,
       cache_time: 0,
     })
   } catch (e) {
@@ -204,11 +204,11 @@ const PUBLIC_FOLDER_NAME = 'public'
 app.use(express.static(PUBLIC_FOLDER_NAME))
 
 if (TESTING_MODE) {
-  // DATA fetcher endpoint, where the data from a game, for a space,
+  // DATA fetcher endpoint, where the data from a game, for a group,
   // is formatted to cytoscape friendly format
   app.get('/data/default-test/default-test', async (req, res) => {
     const game = new Game({
-      spaceId: '123',
+      groupId: '123',
       telegram,
       messageBus,
       gameUrl: GAME_URL,
@@ -225,12 +225,12 @@ if (TESTING_MODE) {
   })
 }
 
-// DATA fetcher endpoint, where the data from a game, for a space,
+// DATA fetcher endpoint, where the data from a game, for a group,
 // is formatted to cytoscape friendly format
-app.get('/data/:spaceId/:gameId', async (req, res) => {
-  const { spaceId, gameId } = req.params
+app.get('/data/:groupId/:gameId', async (req, res) => {
+  const { groupId, gameId } = req.params
 
-  const groupGames = ARCHIVED_GAMES[spaceId]
+  const groupGames = ARCHIVED_GAMES[groupId]
   if (!groupGames || !groupGames.length) {
     return res.sendStatus(404)
   }

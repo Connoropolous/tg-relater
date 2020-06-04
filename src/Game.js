@@ -9,10 +9,10 @@ const TESTING_MODE = process.env.TESTING_MODE === 'true'
 const NUMBER_OF_TEST_PLAYERS = 5
 
 class Game {
-  constructor({ spaceId, telegram, messageBus, gameUrl }) {
+  constructor({ groupId, telegram, messageBus, gameUrl }) {
     // give a random id
     this.id = Math.random().toString().slice(2)
-    this.spaceId = spaceId
+    this.groupId = groupId
     this.telegram = telegram
     this.messageBus = messageBus
     this.gameUrl = gameUrl
@@ -193,7 +193,7 @@ Type in the highest number that you would say is true about your connection, and
     )
     await ctx.replyWithGame(GAME_SHORT_NAME, buttons)
     return ctx.reply(
-      `You can also view the results directly in your browser by visiting: ${this.gameUrl}?spaceId=${this.spaceId}&gameId=${this.id}`
+      `You can also view the results directly in your browser by visiting: ${this.gameUrl}?groupId=${this.groupId}&gameId=${this.id}`
     )
   }
 }
