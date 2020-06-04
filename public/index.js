@@ -45,7 +45,7 @@ const runCytoscape = (cytoscapeData) => {
   let layout = cy.layout({
     name: 'cose',
     // Node repulsion (non overlapping) multiplier
-    nodeRepulsion: function (node) {
+    nodeRepulsion: function (/* node */) {
       return 5000000
     },
     /*
@@ -73,7 +73,7 @@ const runCytoscape = (cytoscapeData) => {
       return edge.data('strength')
     },
   })
-  cy.nodes().forEach((node, index) => {
+  cy.nodes().forEach((node) => {
     const nodeBetweenness = betweennessCentrality.betweenness(`#${node.id()}`)
     node.data('betweennessCentrality', nodeBetweenness)
   })
@@ -82,21 +82,22 @@ const runCytoscape = (cytoscapeData) => {
 // main function to execute
 async function run() {
   // gets a param from the url like
-  // ?groupId=hello
+  // ?spaceId=hello
   const params = new URLSearchParams(window.location.search)
   const TESTING_MODE = 'default-test'
-  const groupId = params.get('groupId') || TESTING_MODE
+  const spaceId = params.get('spaceId') || TESTING_MODE
+  const gameId = params.get('gameId') || TESTING_MODE
 
   // makes an http call to our express js server
   // requesting data
-  const res = await fetch(`/data/${groupId}`)
+  const res = await fetch(`/data/${spaceId}/${gameId}`)
   // parses the json, from a string, into JSON objects
   let cytoscapeData
   try {
     cytoscapeData = await res.json()
   } catch (e) {
     // got a bad response, no data there
-    alert(`group with id ${groupId} doesnt exist`)
+    alert(`the group, or the game, you requested doesn't exist`)
   }
 
   // loads our data into the UI
