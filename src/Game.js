@@ -1,12 +1,15 @@
-const Extra = require('telegraf/extra')
-const Markup = require('telegraf/markup')
+const { once } = require('events')
+// const Extra = require('telegraf/extra')
+// const Markup = require('telegraf/markup')
 const { generateTestPlayerData } = require('./test-data')
 
-const GAME_SHORT_NAME = process.env.GAME_SHORT_NAME
+// const GAME_SHORT_NAME = process.env.GAME_SHORT_NAME
 const TESTING_MODE = process.env.TESTING_MODE === 'true'
 
 // TEST VARIABLES THAT CAN BE TWEAKED DURING TESTING
 const NUMBER_OF_TEST_PLAYERS = 5
+
+const GAMEOVER = 'gameover'
 
 class Game {
   constructor({ groupId, telegram, messageBus, gameUrl }) {
@@ -16,6 +19,8 @@ class Game {
     this.telegram = telegram
     this.messageBus = messageBus
     this.gameUrl = gameUrl
+
+    this.wasPrematurelyEnded = false
 
     if (TESTING_MODE) {
       const testPlayerData = generateTestPlayerData(NUMBER_OF_TEST_PLAYERS)
@@ -32,15 +37,22 @@ class Game {
   /*
     built-in methods for Game instances
   */
-  playersNextMessageSent(playerId) {
-    // reassign variable in order to avoid instance
-    // reference issue in the inner function
-    const messageBus = this.messageBus
-    return new Promise((resolve) => {
-      messageBus.once(playerId, (ctx) => {
-        resolve(ctx.message.text)
-      })
-    })
+  async playersNextMessageSent(playerId) {
+    try {
+      // set up received message case
+      const [ctx] = await once(this.messageBus, playerId)
+      return ctx.message.text
+    } catch (e) {
+      // set up intentional quit game case
+      if (e.message === GAMEOVER) return
+      // cover unintentional error case
+      else {
+        throw new Error(
+          'there was an unexpected error while waiting for user message: ' +
+            e.message
+        )
+      }
+    }
   }
 
   // during setup stage of the game
@@ -88,6 +100,11 @@ Type in the highest number that you would say is true about your connection, and
     let response
     while (invalidResponse) {
       response = await this.playersNextMessageSent(playerToAsk.id)
+      // in this case, we know the game was quit
+      // break out of the loop, and the function
+      if (!response) {
+        return
+      }
       let parsed = Number.parseInt(response)
       if (parsed >= 0 && parsed <= 9) {
         // this will break us out of the `while` loop
@@ -147,19 +164,37 @@ Type in the highest number that you would say is true about your connection, and
     // create an empty array to store all results
     const allPlayersConnections = []
 
+    let finishedEarly = false
     let generator = this.iteratePlayerConnections(playerToAsk)
     // because its an async generator, we can use `for await ... of`
     // which awaits one result, before initiating the next call
     for await (let connection of generator) {
       // just push the result into the results array
-      allPlayersConnections.push(connection)
+      if (connection) {
+        allPlayersConnections.push(connection)
+        finishedEarly =
+          allPlayersConnections.length ===
+          this.players.filter((playerId) => playerId !== playerToAsk.id).length
+      } else {
+        // in this case, we know we are quitting the game
+        finishedEarly = false
+        // don't loop any more, break out of it
+        break
+      }
     }
 
     // let them know they're done
-    await this.telegram.sendMessage(
-      playerToAsk.id,
-      'you have completed all of them! the group will be notified when ALL participants have completed and the results will be shared'
-    )
+    if (finishedEarly) {
+      await this.telegram.sendMessage(
+        playerToAsk.id,
+        'you have completed all of them! the group will be notified when ALL participants have completed and the results will be shared'
+      )
+    } else {
+      await this.telegram.sendMessage(
+        playerToAsk.id,
+        'the game has been drawn to a close and no more responses are being accepted'
+      )
+    }
 
     return allPlayersConnections
   }
@@ -171,22 +206,23 @@ Type in the highest number that you would say is true about your connection, and
     // Promise.all gives us parallelization, along with just initiating all the promises
     // without waiting for them to finish
 
-    const promises = []
-    this.players.forEach((playerId) => {
-      const playerData = this.playerData[playerId]
-      const promise = this.askPlayerAboutAllPlayers(playerData)
-      // push the promise onto the promises array, for inclusion in the Promise.all
-      promises.push(promise)
-    })
-    // this waits for every promise to finish
-    const allConnections = await Promise.all(promises)
-
-    // it has everyones responses to all connections
-    await ctx.reply('everyone has completed')
-    await ctx.reply('open the following link to see the graph of connections')
-
     // store all the data on the game
-    this.data = allConnections
+    // this waits for every promise to finish
+    this.data = await Promise.all(
+      // an array of promises representing the completion states of all the players
+      this.players.map((playerId) => {
+        const playerData = this.playerData[playerId]
+        return this.askPlayerAboutAllPlayers(playerData)
+      })
+    )
+
+    // will be true if this.endGame() was called
+    if (this.wasPrematurelyEnded) {
+      await ctx.reply('the game has been drawn to an early end')
+    } else {
+      // it has everyones responses to all connections
+      await ctx.reply('everyone has completed!')
+    }
 
     // const buttons = Extra.markup(
     //   Markup.inlineKeyboard([Markup.gameButton('Show graph')])
@@ -195,6 +231,14 @@ Type in the highest number that you would say is true about your connection, and
     return ctx.reply(
       `View the results in your browser by visiting: ${this.gameUrl}?groupId=${this.groupId}&gameId=${this.id}`
     )
+  }
+
+  endGame() {
+    if (!this.running) return
+    this.wasPrematurelyEnded = true
+    // end a running game, by canceling all the pending event listeners
+    // which will cause them to end a chain of promises due to being an undefined result
+    this.messageBus.emit('error', new Error(GAMEOVER))
   }
 }
 

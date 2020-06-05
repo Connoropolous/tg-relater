@@ -10,12 +10,7 @@ const EventEmitter = require('events')
 // Local imports
 const Game = require('./Game')
 const convertGameDataToCytoscape = require('./cytoscape-converter')
-const { generateTestEdges } = require('./test-data')
-
-// this will transmit events from the telegram bot listeners
-// over an internal channel, where the events are named by the
-// user id who sent the message
-const messageBus = new EventEmitter()
+// const { generateTestEdges } = require('./test-data')
 
 // ENVIRONMENT VARIABLES
 const GAME_URL = process.env.GAME_URL
@@ -24,7 +19,7 @@ const TESTING_MODE = process.env.TESTING_MODE === 'true'
 const PORT = process.env.PORT
 
 // TEST VARIABLES THAT CAN BE TWEAKED DURING TESTING
-const NETWORK_DENSITY_PERCENT = 40
+// const NETWORK_DENSITY_PERCENT = 40
 
 // documentation
 // https://telegraf.js.org/#/?id=introduction
@@ -109,6 +104,10 @@ bot.command('run', groupMware(), (ctx) => {
       'there is already a game in progress in this group. finish that one first.'
     )
   }
+  // this will transmit events from the telegram bot listeners
+  // over an internal channel, where the events are named by the
+  // user id who sent the message
+  const messageBus = new EventEmitter()
   const game = new Game({ groupId, telegram, messageBus, gameUrl: GAME_URL })
   GAMES[groupId] = game
   return ctx.reply(
@@ -137,7 +136,7 @@ bot.command('ready', groupMware(), gameMware(), noReadyTwice, async (ctx) => {
   }
 
   await ctx.reply(
-    'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) to play'
+    'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) to play. run the /end command if you want to end the game early, before everyone is finished'
   )
 
   // start the game
@@ -145,6 +144,22 @@ bot.command('ready', groupMware(), gameMware(), noReadyTwice, async (ctx) => {
     // this is necessary to make it available for viewing
     archiveGame(groupId)
   })
+})
+
+// the /ready command, start a game that's been initiated and has players
+// gameMware will validate that there's a game in progress
+function onlyIfRunning(ctx, next) {
+  const game = ctx.groupGame
+  if (!game.running) {
+    return ctx.reply(
+      'there is no game in progress in this group. start one first.'
+    )
+  } else {
+    return next()
+  }
+}
+bot.command('end', groupMware(), gameMware(), onlyIfRunning, async (ctx) => {
+  ctx.groupGame.endGame()
 })
 
 // in groupMware, fail silently
@@ -176,7 +191,9 @@ bot.hears(/.*/g, (ctx) => {
   // dynamically subscribe and unsubscribe elsewhere in the code
   const userId = ctx.update.message.from.id
   // magic portal, using the userId as the event type (channel)
-  messageBus.emit(userId, ctx)
+  Object.values(GAMES).forEach((game) => {
+    game.messageBus.emit(userId, ctx)
+  })
 })
 
 // handle a request to "play the game" by
@@ -235,7 +252,6 @@ app.get('/data/:groupId/:gameId', async (req, res) => {
   if (!groupGames || !groupGames.length) {
     return res.sendStatus(404)
   }
-  console.log(groupGames)
   const game = groupGames.find((game) => game.id === gameId)
   if (!game) {
     return res.sendStatus(404)

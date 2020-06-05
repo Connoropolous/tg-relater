@@ -86,15 +86,15 @@ const runCytoscape = (cytoscapeData) => {
 // main function to execute
 async function run() {
   // gets a param from the url like
-  // ?spaceId=hello
+  // ?groupId=hello
   const params = new URLSearchParams(window.location.search)
   const TESTING_MODE = 'default-test'
-  const spaceId = params.get('spaceId') || TESTING_MODE
+  const groupId = params.get('groupId') || TESTING_MODE
   const gameId = params.get('gameId') || TESTING_MODE
 
   // makes an http call to our express js server
   // requesting data
-  const res = await fetch(`/data/${spaceId}/${gameId}`)
+  const res = await fetch(`/data/${groupId}/${gameId}`)
   // parses the json, from a string, into JSON objects
   let cytoscapeData
   try {
