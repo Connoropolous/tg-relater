@@ -29,8 +29,8 @@ Run `/run` to initiate a game
 
 Type and send 'me' to join the game
 
-Run '/ready' to launch the game
+Run `/ready` to launch the game
 
 Use DMs with the bot to play the game
 
-Run '/end' to early end the game
+Run `/end` to early end the game
