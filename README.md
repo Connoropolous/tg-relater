@@ -16,13 +16,21 @@ Run
 
 Then
 
-`node index.js`
+`npm run start`
 
 Or, if you want auto-restarting on code changes
 
-`nodemon index.js`
+`npm run start-watch`
 
 
 Create a group on telegram, invite your bot to that group.
 
-Run `/run` to kick off a game
+Run `/run` to initiate a game
+
+Type and send 'me' to join the game
+
+Run '/ready' to launch the game
+
+Use DMs with the bot to play the game
+
+Run '/end' to early end the game
