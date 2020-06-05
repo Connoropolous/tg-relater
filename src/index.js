@@ -1,3 +1,5 @@
+const fs = require('fs')
+const path = require('path')
 const Telegraf = require('telegraf')
 const Telegram = require('telegraf/telegram')
 const express = require('express')
@@ -5,7 +7,7 @@ const request = require('request')
 require('dotenv').config()
 
 // EventEmitter type is built-in to nodejs, no package to install
-const EventEmitter = require('events')
+const { EventEmitter } = require('events')
 
 // Local imports
 const Game = require('./Game')
@@ -26,21 +28,37 @@ const PORT = process.env.PORT
 const bot = new Telegraf(BOT_TOKEN)
 const telegram = new Telegram(BOT_TOKEN)
 
-// key will be group id, value will be "game" being played
-// only one game per time in a group
-const ARCHIVED_GAMES = {}
+const GROUP_GAMES = {}
 const GAMES = {}
 
-function archiveGame(groupId) {
-  // make sure the array for archiving this groups games exists
-  if (!ARCHIVED_GAMES[groupId]) {
-    ARCHIVED_GAMES[groupId] = []
+// RELOAD in saved game data, from the filesystem
+const gamesFolder = path.join(__dirname, '..', 'games')
+fs.readdir(gamesFolder, (err, files) => {
+  if (err) {
+    throw err
   }
-  // add it to this groups archived game list
-  const game = GAMES[groupId]
-  ARCHIVED_GAMES[groupId].push(game)
-  // remove it from the active games reference
-  delete GAMES[groupId]
+  files.forEach((file) => {
+    const game = require(path.join(gamesFolder, file))
+    GAMES[game.id] = game
+  })
+})
+
+function groupIsBusy(groupId, gameId) {
+  GROUP_GAMES[groupId] = gameId
+}
+function groupIsFree(groupId) {
+  delete GROUP_GAMES[groupId]
+}
+
+// save a game to the filesystem as JSON.
+// performed after the game ends
+function saveGame(gameId) {
+  const game = GAMES[gameId]
+  if (!game) return
+  fs.writeFileSync(
+    path.join(__dirname, '..', 'games', `${gameId}.json`),
+    JSON.stringify(game.toJSON())
+  )
 }
 
 // example of middleware
@@ -65,11 +83,12 @@ function groupMware(noisy = true) {
   return async function groupMware(ctx, next) {
     const message = getMessage(ctx)
     if (
+      // a supergroup is a public group
       !(message.chat.type === 'group' || message.chat.type === 'supergroup')
     ) {
       if (noisy) {
         return ctx.reply(
-          'game can only be played in a group setting. add me to a group'
+          'Game can only be played in a group setting. Add me to a group'
         )
       } else return // silently do nothing
     }
@@ -83,11 +102,12 @@ function groupMware(noisy = true) {
 function gameMware(noisy = true) {
   return async function gameMware(ctx, next) {
     const groupId = getGroupId(ctx)
-    const game = GAMES[groupId]
+    const gameId = GROUP_GAMES[groupId]
+    const game = GAMES[gameId]
     if (!game) {
       if (noisy) {
         return ctx.reply(
-          'there is no game in progress in this group. start one by using /run'
+          'There is no game in progress in this group. Start one by using /run'
         )
       } else return // silently do nothing
     }
@@ -99,9 +119,9 @@ function gameMware(noisy = true) {
 // the main /run command, initiate a new game
 bot.command('run', groupMware(), (ctx) => {
   const groupId = getGroupId(ctx)
-  if (GAMES[groupId]) {
+  if (GROUP_GAMES[groupId]) {
     return ctx.reply(
-      'there is already a game in progress in this group. finish that one first.'
+      'There is already a game in progress in this group. Finish that one first.'
     )
   }
   // this will transmit events from the telegram bot listeners
@@ -109,9 +129,12 @@ bot.command('run', groupMware(), (ctx) => {
   // user id who sent the message
   const messageBus = new EventEmitter()
   const game = new Game({ groupId, telegram, messageBus, gameUrl: GAME_URL })
-  GAMES[groupId] = game
+  groupIsBusy(groupId, game.id)
+  GAMES[game.id] = game
   return ctx.reply(
-    'who wants to play? reply with "me" if you do. If this is your first time playing, please click this link, @relater_bot , and send the bot any message at all before returning here. run the /ready command when all players are in'
+    `Who wants to play? reply with "me" if you do.
+If this is your first time playing, please click this link, @relater_bot , and send the bot any message at all before returning here.
+Run the /ready command when you want to start. Players will still be able to join.`
   )
 })
 
@@ -121,7 +144,7 @@ function noReadyTwice(ctx, next) {
   const game = ctx.groupGame
   if (game.running) {
     return ctx.reply(
-      'there is already a game in progress in this group. finish that one first.'
+      'There is already a game in progress in this group. Finish that one first.'
     )
   } else {
     return next()
@@ -136,29 +159,43 @@ bot.command('ready', groupMware(), gameMware(), noReadyTwice, async (ctx) => {
   }
 
   await ctx.reply(
-    'ok lets play! everyone please go to your direct message chat with this bot (@relater_bot) to play. run the /end command if you want to end the game early, before everyone is finished'
+    `Ok lets play!
+Everyone please go to your direct message chat with this bot (@relater_bot) to play.
+Players can still join until someone runs /close. 
+Run the /end command if you want to end the game early`
   )
 
   // start the game
   game.startGame(ctx).then(() => {
-    // this is necessary to make it available for viewing
-    archiveGame(groupId)
+    // free up the group to play another game
+    // once this game ends
+    groupIsFree(groupId)
+    saveGame(game.id)
   })
+
+  await ctx.reply(
+    `View the results now or anytime in your browser by visiting: ${game.gameUrl}?gameId=${game.id}`
+  )
 })
 
-// the /ready command, start a game that's been initiated and has players
-// gameMware will validate that there's a game in progress
 function onlyIfRunning(ctx, next) {
   const game = ctx.groupGame
   if (!game.running) {
     return ctx.reply(
-      'there is no game in progress in this group. start one first.'
+      'There is no game in progress in this group. Start one first.'
     )
   } else {
     return next()
   }
 }
+bot.command('close', groupMware(), gameMware(), onlyIfRunning, async (ctx) => {
+  await ctx.reply(
+    'Registration for the game has been closed. The game will end when everyone completes, or someone runs /end'
+  )
+  ctx.groupGame.closeRegistration()
+})
 bot.command('end', groupMware(), gameMware(), onlyIfRunning, async (ctx) => {
+  await ctx.reply('The game has been drawn to an end. Thanks for playing')
   ctx.groupGame.endGame()
 })
 
@@ -192,19 +229,23 @@ bot.hears(/.*/g, (ctx) => {
   const userId = ctx.update.message.from.id
   // magic portal, using the userId as the event type (channel)
   Object.values(GAMES).forEach((game) => {
-    game.messageBus.emit(userId, ctx)
+    // prevent it from trying to send messages to
+    // past games
+    if (game.messageBus) {
+      game.messageBus.emit(userId, ctx)
+    }
   })
 })
 
 // handle a request to "play the game" by
 // sending back the live URL of the HTML game
 bot.gameQuery(async (ctx) => {
-  const groupId = ctx.update.callback_query.message.chat.id
+  // const groupId = ctx.update.callback_query.message.chat.id
   let result
   try {
     result = await ctx.answerCbQuery(null, null, {
       // TODO find a way to get gameId in here
-      url: `${GAME_URL}?groupId=${groupId}&gameId=`,
+      url: `${GAME_URL}?gameId=`,
       cache_time: 0,
     })
   } catch (e) {
@@ -223,7 +264,7 @@ app.use(express.static(PUBLIC_FOLDER_NAME))
 if (TESTING_MODE) {
   // DATA fetcher endpoint, where the data from a game, for a group,
   // is formatted to cytoscape friendly format
-  app.get('/data/default-test/default-test', async (req, res) => {
+  app.get('/data/default-test', async (req, res) => {
     // const game = new Game({
     //   groupId: '123',
     //   telegram,
@@ -232,7 +273,7 @@ if (TESTING_MODE) {
     // })
     // // everyones responses
     // const densityPercentage = NETWORK_DENSITY_PERCENT
-    // game.data = generateTestEdges(game, densityPercentage)
+    // game.edges = generateTestEdges(game, densityPercentage)
 
     // // convert game data to cytoscape format
     // const cytoscapeData = await convertGameDataToCytoscape(telegram, game)
@@ -245,17 +286,14 @@ if (TESTING_MODE) {
 
 // DATA fetcher endpoint, where the data from a game, for a group,
 // is formatted to cytoscape friendly format
-app.get('/data/:groupId/:gameId', async (req, res) => {
-  const { groupId, gameId } = req.params
+app.get('/data/:gameId', async (req, res) => {
+  const { gameId } = req.params
 
-  const groupGames = ARCHIVED_GAMES[groupId]
-  if (!groupGames || !groupGames.length) {
-    return res.sendStatus(404)
-  }
-  const game = groupGames.find((game) => game.id === gameId)
+  const game = GAMES[gameId]
   if (!game) {
     return res.sendStatus(404)
   }
+
   const cytoscapeData = await convertGameDataToCytoscape(telegram, game)
   res.send(cytoscapeData)
 })

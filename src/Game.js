@@ -2,14 +2,13 @@ const { once } = require('events')
 // const Extra = require('telegraf/extra')
 // const Markup = require('telegraf/markup')
 const { generateTestPlayerData } = require('./test-data')
+const AttentionQueue = require('./AttentionQueue')
 
 // const GAME_SHORT_NAME = process.env.GAME_SHORT_NAME
 const TESTING_MODE = process.env.TESTING_MODE === 'true'
 
 // TEST VARIABLES THAT CAN BE TWEAKED DURING TESTING
 const NUMBER_OF_TEST_PLAYERS = 5
-
-const GAMEOVER = 'gameover'
 
 class Game {
   constructor({ groupId, telegram, messageBus, gameUrl }) {
@@ -20,7 +19,20 @@ class Game {
     this.messageBus = messageBus
     this.gameUrl = gameUrl
 
-    this.wasPrematurelyEnded = false
+    this.messageBus.on('error', (e) => {
+      if (e.message === AttentionQueue.REMOTE_QUIT) {
+        this.messageBus.emit(Game.USER_END)
+      } else {
+        throw e
+      }
+    })
+
+    this.createdAt = Date.now()
+    this.startedAt = null
+    this.registrationOpen = true
+    this.wasEarlyEnded = false
+    // where we store results
+    this.edges = []
 
     if (TESTING_MODE) {
       const testPlayerData = generateTestPlayerData(NUMBER_OF_TEST_PLAYERS)
@@ -31,6 +43,7 @@ class Game {
       // player data, keyed by player id
       this.playerData = {}
     }
+    this.attentionQueues = {}
     this.running = false
   }
 
@@ -38,27 +51,87 @@ class Game {
     built-in methods for Game instances
   */
   async playersNextMessageSent(playerId) {
-    try {
-      // set up received message case
-      const [ctx] = await once(this.messageBus, playerId)
-      return ctx.message.text
-    } catch (e) {
-      // set up intentional quit game case
-      if (e.message === GAMEOVER) return
-      // cover unintentional error case
-      else {
-        throw new Error(
-          'there was an unexpected error while waiting for user message: ' +
-            e.message
-        )
-      }
+    const [ctx] = await once(this.messageBus, playerId)
+    return ctx.message.text
+  }
+
+  // callable anytime until registration is closed
+  addPlayer(userId, userData) {
+    if (this.registrationOpen) {
+      userId = typeof userId === 'string' ? userId : userId.toString()
+      this.players.push(userId)
+      this.playerData[userId] = userData
+      this.setupPlayerAttentionQueue(userId, userData)
     }
   }
 
-  // during setup stage of the game
-  addPlayer(userId, userData) {
-    this.players.push(userId)
-    this.playerData[userId] = userData
+  setupPlayerAttentionQueue(userId, userData) {
+    const handleItem = (playerToAskAbout, remainingCount) =>
+      this.playerAndPlayerConnection(userData, playerToAskAbout, remainingCount)
+    const attentionQueue = new AttentionQueue(handleItem)
+
+    attentionQueue.on(AttentionQueue.RESULT, (result) => {
+      this.edges.push(result)
+    })
+    // handling when a user completes the current queue
+    attentionQueue.on(AttentionQueue.HIT_END_OF_QUEUE, () => {
+      if (!this.registrationOpen) {
+        // set this one to '!running' so that others
+        // will know that it's done if they check
+        attentionQueue.stopOrPause()
+        if (!this.completeIfNatural()) {
+          // not everyone is done, but user is totally done
+          const doneForGood =
+            'You have completed all of them! The group will be notified when ALL participants have completed.'
+          this.telegram.sendMessage(userId, doneForGood)
+        } else {
+          // if its completely done, and we were the one to end it
+          const finishedGame =
+            "You were the final participant. Being last isn't bad don't worry!"
+          this.telegram.sendMessage(userId, finishedGame)
+          attentionQueue.removeAllListeners()
+        }
+      } else {
+        const doneForNow =
+          "That's all of them for now! If new people join, you will automatically be asked about them as well."
+        this.telegram.sendMessage(userId, doneForNow)
+      }
+    })
+    // handling when the game was ended by a facilitator, or anyone
+    attentionQueue.once(AttentionQueue.REMOTE_QUIT, () => {
+      attentionQueue.removeAllListeners()
+      const message =
+        'The game has been drawn to a close and no more responses are being accepted.'
+      this.telegram.sendMessage(userId, message)
+    })
+
+    // track this attentionQueue under the associated usersId
+    this.attentionQueues[userId] = attentionQueue
+
+    // special cases if the game is already running
+    if (this.running) {
+      // fill up this new persons attention queue immediately
+      // this will also start their attention queue
+      this.seedAttentionQueue(userId)
+      // add this person to everyone elses attention queue
+      Object.keys(this.attentionQueues)
+        .filter((playerId) => playerId !== userId)
+        .forEach((playerId) => {
+          this.attentionQueues[playerId].add(userData)
+        })
+    }
+  }
+
+  completeIfNatural() {
+    const naturalCompletion =
+      this.running &&
+      Object.values(this.attentionQueues).every(
+        (someoneQueue) => !someoneQueue.running
+      )
+    if (naturalCompletion) {
+      this.messageBus.emit(Game.NATURAL_END)
+    }
+    return naturalCompletion
   }
 
   // core 1-on-1 interaction to ask about how well someone knows someone else
@@ -100,11 +173,6 @@ Type in the highest number that you would say is true about your connection, and
     let response
     while (invalidResponse) {
       response = await this.playersNextMessageSent(playerToAsk.id)
-      // in this case, we know the game was quit
-      // break out of the loop, and the function
-      if (!response) {
-        return
-      }
       let parsed = Number.parseInt(response)
       if (parsed >= 0 && parsed <= 9) {
         // this will break us out of the `while` loop
@@ -113,7 +181,7 @@ Type in the highest number that you would say is true about your connection, and
         // invalid response, so message them, and loop back to the start
         await this.telegram.sendMessage(
           playerToAsk.id,
-          "that wasn't a valid response. try again with a number between 0 and 9"
+          "That wasn't a valid response. Try again with a number between 0 and 9."
         )
       }
     }
@@ -129,117 +197,91 @@ Type in the highest number that you would say is true about your connection, and
     }
   }
 
-  // generator function
-  async *iteratePlayerConnections(playerToAsk) {
-    // create a list of the IDs of other players
-    const otherPlayers = this.players.filter(
-      (playerId) => playerId !== playerToAsk.id
-    )
-
-    // run a loop, where, for each player, we ask the "playerToAsk" about the
-    // relationship with the "playerToAskAbout"
-    for (let i = 0; i < otherPlayers.length; i++) {
-      const playerToAskAboutId = otherPlayers[i]
-      const playerToAskAbout = this.playerData[playerToAskAboutId]
-      const connection = await this.playerAndPlayerConnection(
-        playerToAsk,
-        playerToAskAbout,
-        // number remaining
-        otherPlayers.length - i
-      )
-      // the yield keyword is what makes this a generator function
-      // it means that for this particular call, "yield" this result.
-      // similar to "return", but can be called succesively
-      yield connection
-    }
-  }
-
-  async askPlayerAboutAllPlayers(playerToAsk) {
-    // skip over test players, in terms of asking them
-    if (playerToAsk.test) {
-      return []
-    }
-
-    // ask this player in SEQUENCE about every other player and their connection
-    // create an empty array to store all results
-    const allPlayersConnections = []
-
-    let finishedEarly = false
-    let generator = this.iteratePlayerConnections(playerToAsk)
-    // because its an async generator, we can use `for await ... of`
-    // which awaits one result, before initiating the next call
-    for await (let connection of generator) {
-      // just push the result into the results array
-      if (connection) {
-        allPlayersConnections.push(connection)
-        finishedEarly =
-          allPlayersConnections.length ===
-          this.players.filter((playerId) => playerId !== playerToAsk.id).length
-      } else {
-        // in this case, we know we are quitting the game
-        finishedEarly = false
-        // don't loop any more, break out of it
-        break
-      }
-    }
-
-    // let them know they're done
-    if (finishedEarly) {
-      await this.telegram.sendMessage(
-        playerToAsk.id,
-        'you have completed all of them! the group will be notified when ALL participants have completed and the results will be shared'
-      )
-    } else {
-      await this.telegram.sendMessage(
-        playerToAsk.id,
-        'the game has been drawn to a close and no more responses are being accepted'
-      )
-    }
-
-    return allPlayersConnections
+  seedAttentionQueue(userId) {
+    const attentionQueue = this.attentionQueues[userId]
+    const otherPlayers = this.players.filter((playerId) => playerId !== userId)
+    otherPlayers.forEach((playerId) => {
+      const playerToAskAbout = this.playerData[playerId]
+      attentionQueue.add(playerToAskAbout)
+    })
+    attentionQueue.startOrResume()
   }
 
   async startGame(ctx) {
     this.running = true
+    this.startedAt = Date.now()
 
     // ask every player in PARALLEL about other players
-    // Promise.all gives us parallelization, along with just initiating all the promises
-    // without waiting for them to finish
-
-    // store all the data on the game
-    // this waits for every promise to finish
-    this.data = await Promise.all(
-      // an array of promises representing the completion states of all the players
-      this.players.map((playerId) => {
-        const playerData = this.playerData[playerId]
-        return this.askPlayerAboutAllPlayers(playerData)
-      })
+    Object.keys(this.attentionQueues).forEach(
+      this.seedAttentionQueue.bind(this)
     )
 
+    // whichever comes first
+    await Promise.race([
+      once(this.messageBus, Game.USER_END),
+      once(this.messageBus, Game.NATURAL_END),
+    ])
+
+    // remove any lingering event listeners, which will cause memory leaks
+    Object.values(this.attentionQueues).forEach((attentionQueue) =>
+      attentionQueue.removeAllListeners()
+    )
+
+    this.endedAt = Date.now()
+
     // will be true if this.endGame() was called
-    if (this.wasPrematurelyEnded) {
-      await ctx.reply('the game has been drawn to an early end')
-    } else {
+    if (!this.wasEarlyEnded) {
       // it has everyones responses to all connections
-      await ctx.reply('everyone has completed!')
+      await ctx.reply(
+        "Everyone has completed! Thanks for playing. Don't forget to check out the results."
+      )
     }
 
     // const buttons = Extra.markup(
     //   Markup.inlineKeyboard([Markup.gameButton('Show graph')])
     // )
     // await ctx.replyWithGame(GAME_SHORT_NAME, buttons)
-    return ctx.reply(
-      `View the results in your browser by visiting: ${this.gameUrl}?groupId=${this.groupId}&gameId=${this.id}`
-    )
+  }
+
+  closeRegistration() {
+    this.registrationOpen = false
+    // at this point, anyone who is complete
+    // can be marked as !running because there won't be any more
+    // this will enforce that completeIfNatural works as expected
+    Object.values(this.attentionQueues).forEach((attentionQueue) => {
+      if (attentionQueue.ready.length === 0) {
+        attentionQueue.stopOrPause()
+      }
+    })
+    this.completeIfNatural()
   }
 
   endGame() {
     if (!this.running) return
-    this.wasPrematurelyEnded = true
+    this.wasEarlyEnded = true
     // end a running game, by canceling all the pending event listeners
     // which will cause them to end a chain of promises due to being an undefined result
-    this.messageBus.emit('error', new Error(GAMEOVER))
+    this.messageBus.emit('error', new Error(AttentionQueue.REMOTE_QUIT))
+  }
+
+  toJSON() {
+    return {
+      id: this.id,
+      createdAt: this.createdAt,
+      startedAt: this.startedAt,
+      endedAt: this.endedAt,
+      groupId: this.groupId,
+      registrationOpen: this.registrationOpen,
+      wasEarlyEnded: this.wasEarlyEnded,
+      running: this.running,
+      players: this.players,
+      playerData: this.playerData,
+      edges: this.edges,
+    }
   }
 }
+
+Game.NATURAL_END = 'natural_end'
+Game.USER_END = 'user_end'
 
 module.exports = Game

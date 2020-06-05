@@ -86,22 +86,21 @@ const runCytoscape = (cytoscapeData) => {
 // main function to execute
 async function run() {
   // gets a param from the url like
-  // ?groupId=hello
+  // ?gameId=hello
   const params = new URLSearchParams(window.location.search)
   const TESTING_MODE = 'default-test'
-  const groupId = params.get('groupId') || TESTING_MODE
   const gameId = params.get('gameId') || TESTING_MODE
 
   // makes an http call to our express js server
   // requesting data
-  const res = await fetch(`/data/${groupId}/${gameId}`)
+  const res = await fetch(`/data/${gameId}`)
   // parses the json, from a string, into JSON objects
   let cytoscapeData
   try {
     cytoscapeData = await res.json()
   } catch (e) {
     // got a bad response, no data there
-    alert(`the group, or the game, you requested doesn't exist`)
+    alert(`the game you requested doesn't exist`)
   }
 
   // loads our data into the UI

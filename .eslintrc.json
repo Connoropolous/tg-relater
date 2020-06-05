@@ -9,6 +9,7 @@
     "Atomics": "readonly",
     "SharedArrayBuffer": "readonly",
     "process": "readonly",
+    "__dirname": "readonly",
     "cytoscape": "readonly"
   },
   "parserOptions": {

@@ -34,9 +34,7 @@ async function convertGameDataToCytoscape(telegram, gameInstance) {
         },
       }
     }),
-    // since its an array of arrays, use `.flat()` to draw all data points
-    // up into one single, flat, array
-    edges: gameInstance.data.flat().map((d, index) => ({
+    edges: gameInstance.edges.map((d, index) => ({
       data: {
         // lesson learned, id for edges should not overlap with ids for nodes
         id: 'edge' + index,
